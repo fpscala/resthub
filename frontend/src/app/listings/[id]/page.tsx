@@ -1,6 +1,5 @@
 'use client';
 
-import { use } from 'react';
 import Image from 'next/image';
 import { useListing } from '@/hooks/useListings';
 import { useGenerateContract } from '@/hooks/useContract';
@@ -16,8 +15,8 @@ import { formatPrice, formatDate } from '@/lib/utils';
  * - Owner contact button (phone link)
  * - Download contract button
  */
-export default function ListingDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ListingDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const { data: listing, isLoading, error } = useListing(id);
   const generateContract = useGenerateContract();
 

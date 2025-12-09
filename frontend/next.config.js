@@ -12,6 +12,18 @@ const nextConfig = {
         protocol: 'https',
         hostname: '*.s3.amazonaws.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'picsum.photos',
+      },
     ],
   },
   experimental: {

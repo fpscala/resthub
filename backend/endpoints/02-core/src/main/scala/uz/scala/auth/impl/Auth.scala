@@ -1,0 +1,288 @@
+package uz.scala.auth.impl
+
+import java.security.MessageDigest
+import java.time.ZonedDateTime
+import java.util.UUID
+
+import cats.data.EitherT
+import cats.data.OptionT
+import cats.effect.Sync
+import cats.implicits._
+import dev.profunktor.auth.jwt.JwtAuth
+import dev.profunktor.auth.jwt.JwtSymmetricAuth
+import doobie.syntax.connectionio._
+import org.typelevel.log4cats.Logger
+import pdi.jwt.JwtAlgorithm
+import tsec.passwordhashers.jca.SCrypt
+
+import uz.scala.Language
+import uz.scala.algebras.UsersAlgebra
+import uz.scala.auth.AuthConfig
+import uz.scala.auth.utils.JwtExpire
+import uz.scala.auth.utils.Tokens
+import uz.scala.domain.AuthedUser
+import uz.scala.domain.RefreshTokenId
+import uz.scala.domain.auth._
+import uz.scala.exception.AError.AuthError
+import uz.scala.exception.AError.AuthError._
+import uz.scala.repos.RefreshTokensRepository
+import uz.scala.repos.RolesRepository
+import uz.scala.shared.ResponseMessages._
+import uz.scala.syntax.refined.commonSyntaxAutoUnwrapV
+
+trait Auth[F[_], A] {
+  def loginByPassword(
+      credentials: UserCredentials,
+      deviceInfo: Option[DeviceInfo] = None,
+    )(implicit
+      language: Language
+    ): F[AuthTokens]
+
+  def refresh(
+      refreshToken: String,
+      deviceInfo: Option[DeviceInfo] = None,
+    )(implicit
+      language: Language
+    ): F[AuthTokens]
+
+  def logout(refreshToken: String): F[Unit]
+}
+
+object Auth {
+  def make[F[_]: Sync](
+      config: AuthConfig,
+      users: UsersAlgebra[F],
+      usersRepository: uz.scala.repos.UsersRepository[doobie.ConnectionIO],
+      rolesRepository: RolesRepository[doobie.ConnectionIO],
+      refreshTokensRepository: RefreshTokensRepository[doobie.ConnectionIO],
+    )(implicit
+      logger: Logger[F],
+      xa: doobie.Transactor[F],
+    ): Auth[F, AuthedUser] =
+    new Auth[F, AuthedUser] {
+      val tokens: Tokens[F] =
+        Tokens.make[F](JwtExpire[F], config)
+      val jwtAuth: JwtSymmetricAuth =
+        JwtAuth.hmac(config.tokenKey.toCharArray, JwtAlgorithm.HS256)
+
+      // SHA-256 hash for refresh token
+      private def hashToken(token: String): String = {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.digest(token.getBytes("UTF-8")).map("%02x".format(_)).mkString
+      }
+
+      override def loginByPassword(
+          credentials: UserCredentials,
+          deviceInfo: Option[DeviceInfo] = None,
+        )(implicit
+          language: Language
+        ): F[AuthTokens] =
+        users.find(credentials.email).flatMap {
+          case None =>
+            NoSuchUser(USER_NOT_FOUND(language)).raiseError[F, AuthTokens]
+          case Some(user) if !SCrypt.checkpwUnsafe(credentials.password, user.password) =>
+            PasswordDoesNotMatch(PASSWORD_DOES_NOT_MATCH(language)).raiseError[F, AuthTokens]
+          case Some(user) =>
+            for {
+              _ <- usersRepository.updateLastLogin(user.id).transact(xa)
+              role <- rolesRepository.getRole(user.roleId).transact(xa)
+              authTokens <- createTokenPair(user.toAuth(role), deviceInfo)
+            } yield authTokens
+        }
+
+      override def refresh(
+          refreshTokenStr: String,
+          deviceInfo: Option[DeviceInfo] = None,
+        )(implicit
+          language: Language
+        ): F[AuthTokens] = {
+        val now = ZonedDateTime.now()
+        val tokenHash = hashToken(refreshTokenStr)
+
+        (for {
+          // Find refresh token in DB
+          tokenOpt <- EitherT.liftF(refreshTokensRepository.findByHash(tokenHash).transact(xa))
+
+          oldToken <- EitherT.fromOption[F](
+            tokenOpt,
+            InvalidToken(INVALID_REFRESH_TOKEN(language)),
+          )
+
+          // Check if token is in grace period (reuse detection)
+          result <-
+            if (oldToken.revoked && oldToken.reuseWindowExpiresAt.exists(_.isAfter(now)))
+              // GRACE PERIOD ACTIVE - Return the new tokens (idempotent)
+              logger.info(
+                s"Refresh token reuse detected within grace period for user ${oldToken.userId}"
+              ) *>
+                EitherT.liftF(handleGracePeriodReuse(oldToken, language))
+            else if (oldToken.revoked)
+              // Grace period expired - SECURITY BREACH
+              logger.warn(
+                s"Refresh token reuse detected AFTER grace period for user ${oldToken.userId} - revoking all tokens"
+              ) *>
+                EitherT.liftF(
+                  refreshTokensRepository
+                    .revokeAllForUser(oldToken.userId, "reuse_detected")
+                    .transact(xa)
+                ) *>
+                EitherT.leftT[F, AuthTokens](
+                  InvalidToken(TOKEN_REUSE_DETECTED_ALL_REVOKED(language))
+                )
+            else if (oldToken.expiresAt.isBefore(now))
+              // Token expired
+              EitherT.leftT[F, AuthTokens](InvalidToken(REFRESH_TOKEN_EXPIRED(language)))
+            else
+              // NORMAL CASE: Generate new tokens with rotation
+              EitherT.liftF(rotateRefreshToken(oldToken, deviceInfo, language))
+        } yield result).rethrowT
+      }
+
+      override def logout(refreshTokenStr: String): F[Unit] = {
+        val tokenHash = hashToken(refreshTokenStr)
+        refreshTokensRepository
+          .findByHash(tokenHash)
+          .flatMap {
+            case Some(token) =>
+              refreshTokensRepository.revokeToken(token.id, "logout")
+            case None =>
+              ().pure[doobie.ConnectionIO]
+          }
+          .transact(xa)
+      }
+
+      // GRACE PERIOD REUSE HANDLER
+      private def handleGracePeriodReuse(
+          oldToken: uz.scala.repos.dto.RefreshToken,
+          language: Language,
+        ): F[AuthTokens] =
+        oldToken.replacedByTokenId match {
+          case Some(newTokenId) =>
+            // Return the already-generated new tokens
+            refreshTokensRepository
+              .findById(newTokenId)
+              .flatMap {
+                case Some(newToken) =>
+                  // Get user and role to regenerate access token
+                  for {
+                    userOpt <- usersRepository.findById(oldToken.userId)
+                    user <- userOpt.liftTo[doobie.ConnectionIO](
+                      new Exception("User not found")
+                    )
+                    role <- rolesRepository.getRole(user.roleId)
+                  } yield AuthTokens(
+                    accessToken = tokens
+                      .createAccessToken(user.toAuth(role))
+                      .map(_.value)
+                      .toIO
+                      .unsafeRunSync(),
+                    refreshToken = newToken.id.value.toString, // Return the NEW refresh token
+                    tokenType = "Bearer",
+                    expiresIn = config.accessTokenExpiration.toSeconds,
+                  )
+                case None =>
+                  new Exception("Token chain broken").raiseError[doobie.ConnectionIO, AuthTokens]
+              }
+              .transact(xa)
+          case None =>
+            InvalidToken(TOKEN_REVOKED(language)).raiseError[F, AuthTokens]
+        }
+
+      // TOKEN ROTATION WITH GRACE PERIOD
+      private def rotateRefreshToken(
+          oldToken: uz.scala.repos.dto.RefreshToken,
+          deviceInfo: Option[DeviceInfo],
+          language: Language,
+        ): F[AuthTokens] = {
+        val now = ZonedDateTime.now()
+        val gracePeriodSeconds = 30 // 30 seconds grace period
+        val newRefreshTokenStr = UUID.randomUUID().toString
+        val newRefreshTokenHash = hashToken(newRefreshTokenStr)
+        val newRefreshTokenId = RefreshTokenId(UUID.randomUUID())
+
+        val newRefreshToken = uz
+          .scala
+          .repos
+          .dto
+          .RefreshToken(
+            id = newRefreshTokenId,
+            userId = oldToken.userId,
+            tokenHash = newRefreshTokenHash,
+            deviceInfo =
+              deviceInfo.map(d => io.circe.parser.parse(d.asJson.noSpaces).toOption).flatten,
+            ipAddress = None,
+            userAgent = None,
+            expiresAt = now.plusDays(7),
+            createdAt = now,
+          )
+
+        (for {
+          // Get user and role
+          userOpt <- usersRepository.findById(oldToken.userId)
+          user <- userOpt.liftTo[doobie.ConnectionIO](new Exception("User not found"))
+          role <- rolesRepository.getRole(user.roleId)
+
+          // Save new refresh token
+          _ <- refreshTokensRepository.create(newRefreshToken)
+
+          // Mark old token as replaced (with grace period)
+          _ <- refreshTokensRepository.update(oldToken.id)(old =>
+            old.copy(
+              revoked = true,
+              revokedAt = Some(now),
+              revokeReason = Some("token_rotation"),
+              replacedByTokenId = Some(newRefreshTokenId),
+              reuseWindowExpiresAt = Some(now.plusSeconds(gracePeriodSeconds)),
+            )
+          )
+
+        } yield AuthTokens(
+          accessToken = tokens
+            .createAccessToken(user.toAuth(role))
+            .map(_.value)
+            .toIO
+            .unsafeRunSync(),
+          refreshToken = newRefreshTokenStr,
+          tokenType = "Bearer",
+          expiresIn = config.accessTokenExpiration.toSeconds,
+        )).transact(xa)
+      }
+
+      // CREATE TOKEN PAIR (Login)
+      private def createTokenPair(
+          user: AuthedUser,
+          deviceInfo: Option[DeviceInfo],
+        ): F[AuthTokens] = {
+        val now = ZonedDateTime.now()
+        val newRefreshTokenStr = UUID.randomUUID().toString
+        val newRefreshTokenHash = hashToken(newRefreshTokenStr)
+
+        val newRefreshToken = uz
+          .scala
+          .repos
+          .dto
+          .RefreshToken(
+            id = RefreshTokenId(UUID.randomUUID()),
+            userId = user.id,
+            tokenHash = newRefreshTokenHash,
+            deviceInfo =
+              deviceInfo.map(d => io.circe.parser.parse(d.asJson.noSpaces).toOption).flatten,
+            ipAddress = None,
+            userAgent = None,
+            expiresAt = now.plusDays(7),
+            createdAt = now,
+          )
+
+        (for {
+          // Save refresh token
+          _ <- refreshTokensRepository.create(newRefreshToken)
+
+        } yield AuthTokens(
+          accessToken = tokens.createAccessToken(user).map(_.value).toIO.unsafeRunSync(),
+          refreshToken = newRefreshTokenStr,
+          tokenType = "Bearer",
+          expiresIn = config.accessTokenExpiration.toSeconds,
+        )).transact(xa)
+      }
+    }
+}

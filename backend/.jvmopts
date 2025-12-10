@@ -1,0 +1,10 @@
+-Xss4m
+-Xms1G
+-Xmx2G
+-XX:+UseG1GC
+-Duser.timezone="GMT"
+-XX:ReservedCodeCacheSize=384m
+-XX:+UseCodeCacheFlushing
+-XshowSettings:vm
+-XX:MaxGCPauseMillis=200
+-XX:+ExitOnOutOfMemoryError

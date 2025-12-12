@@ -27,6 +27,10 @@ object HttpModule {
         new UsersRoutes[F](env.algebras.users, env.algebras.roles),
         new RolesRoutes[F](env.algebras.roles),
         new RootRoutes[F](env.algebras.assets),
+        new ListingsRoutes[F](env.algebras.listings),
+        new AdminListingsRoutes[F](env.algebras.adminListings),
+        new ContractsRoutes[F](env.algebras.contracts),
+        new S3Routes[F](env.s3Client),
       )
       .map { r =>
         Router(

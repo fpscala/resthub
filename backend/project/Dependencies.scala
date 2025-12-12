@@ -34,6 +34,7 @@ object Dependencies {
     lazy val uzscala = "1.0.18"
     lazy val mailer = "1.4.7"
     lazy val `fs2-kafka` = "3.0.1"
+    lazy val telegramium = "9.76.0"
   }
   trait LibGroup {
     def all: Seq[ModuleID]
@@ -125,6 +126,17 @@ object Dependencies {
     object github {
       object jmcardon {
         lazy val `tsec-password` = "io.github.jmcardon" %% "tsec-password" % Versions.tsec
+      }
+      object apimorphism {
+        object telegramium extends LibGroup {
+          private def telegramium(artifact: String): ModuleID =
+            "io.github.apimorphism" %% artifact % Versions.telegramium
+
+          lazy val core: ModuleID = telegramium("telegramium-core")
+          lazy val high: ModuleID = telegramium("telegramium-high")
+
+          override def all: Seq[ModuleID] = Seq(core, high)
+        }
       }
     }
   }

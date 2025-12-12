@@ -6,5 +6,3 @@ target
 .env
 local.conf
 application.log
-.metals
-.vscode

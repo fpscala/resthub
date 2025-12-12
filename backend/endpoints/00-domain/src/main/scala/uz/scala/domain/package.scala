@@ -51,4 +51,8 @@ package object domain {
   @newtype case class RoleId(value: UUID)
   @derive(eqv, show, uuid)
   @newtype case class RefreshTokenId(value: UUID)
+  @derive(eqv, show, uuid)
+  @newtype case class ListingId(value: UUID)
+  @derive(eqv, show, uuid)
+  @newtype case class ContractId(value: UUID)
 }

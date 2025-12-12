@@ -22,6 +22,9 @@ case class Algebras[F[_]](
     assets: AssetsAlgebra[F],
     authAlgebra: AuthAlgebra[F],
     emailService: EmailService[F],
+    listings: ListingsAlgebra[F],
+    adminListings: AdminListingsAlgebra[F],
+    contracts: ContractsAlgebra[F],
   )
 
 object Algebras {
@@ -41,6 +44,9 @@ object Algebras {
     val roles = RolesAlgebra.make[F](repositories.roles)
     val emailService = EmailService.make[F](mailer, frontendBaseUrl, activationPath)
     val authAlgebra = AuthAlgebra.make[F](repositories.users, emailService)
+    val listings = ListingsAlgebra.make[F](repositories.listings, repositories.users)
+    val adminListings = AdminListingsAlgebra.make[F](repositories.listings, repositories.users)
+    val contracts = ContractsAlgebra.make[F](repositories.contracts, repositories.listings, repositories.users)
 
     Algebras[F](
       auth = Auth.make[F](
@@ -57,6 +63,9 @@ object Algebras {
       ),
       authAlgebra = authAlgebra,
       emailService = emailService,
+      listings = listings,
+      adminListings = adminListings,
+      contracts = contracts,
     )
   }
 }

@@ -172,4 +172,77 @@ object ResponseMessages {
   Uz -> "Hisob bloklangan. Qo'llab-quvvatlash xizmatiga murojaat qiling",
   )
 
+  // NestHub Listing Messages
+  val LISTING_NOT_FOUND: Map[Language, String] = Map(
+    En -> "Listing not found",
+    Ru -> "Объявление не найдено",
+    Uz -> "E'lon topilmadi",
+  )
+
+  val LISTING_CREATED: Map[Language, String] = Map(
+    En -> "Listing created successfully. Awaiting admin approval",
+    Ru -> "Объявление успешно создано. Ожидает проверки администратора",
+    Uz -> "E'lon yaratildi. Admin tasdiqini kutmoqda",
+  )
+
+  val LISTING_DELETED: Map[Language, String] = Map(
+    En -> "Listing deleted successfully",
+    Ru -> "Объявление успешно удалено",
+    Uz -> "E'lon o'chirildi",
+  )
+
+  val LISTING_APPROVED: Map[Language, String] = Map(
+    En -> "Listing approved successfully",
+    Ru -> "Объявление одобрено",
+    Uz -> "E'lon tasdiqlandi",
+  )
+
+  val LISTING_REJECTED: Map[Language, String] = Map(
+    En -> "Listing rejected",
+    Ru -> "Объявление отклонено",
+    Uz -> "E'lon rad etildi",
+  )
+
+  val LISTING_NOT_PENDING: Map[Language, String] = Map(
+    En -> "Listing is not in pending status",
+    Ru -> "Объявление не в статусе ожидания",
+    Uz -> "E'lon kutish holatida emas",
+  )
+
+  val LISTING_NOT_APPROVED: Map[Language, String] = Map(
+    En -> "Listing is not approved",
+    Ru -> "Объявление не одобрено",
+    Uz -> "E'lon tasdiqlanmagan",
+  )
+
+  val NOT_LISTING_OWNER: Map[Language, String] = Map(
+    En -> "You are not the owner of this listing",
+    Ru -> "Вы не являетесь владельцем этого объявления",
+    Uz -> "Siz bu e'lon egasi emassiz",
+  )
+
+  val INVALID_IMAGES: Map[Language, String] = Map(
+    En -> "At least one image is required",
+    Ru -> "Требуется хотя бы одно изображение",
+    Uz -> "Kamida bitta rasm kerak",
+  )
+
+  val INVALID_PRICE: Map[Language, String] = Map(
+    En -> "Price must be greater than zero",
+    Ru -> "Цена должна быть больше нуля",
+    Uz -> "Narx noldan katta bo'lishi kerak",
+  )
+
+  val INSUFFICIENT_PRIVILEGES_ADMIN: Map[Language, String] = Map(
+    En -> "Admin privileges required",
+    Ru -> "Требуются права администратора",
+    Uz -> "Admin huquqlari kerak",
+  )
+
+  val CONTRACT_GENERATED: Map[Language, String] = Map(
+    En -> "Contract generated successfully",
+    Ru -> "Контракт успешно сгенерирован",
+    Uz -> "Shartnoma yaratildi",
+  )
+
 }

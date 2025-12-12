@@ -5,6 +5,8 @@ import java.time.ZonedDateTime
 import doobie._
 import doobie.implicits._
 import doobie.postgres.implicits._
+import doobie.refined.implicits._
+import doobie.postgres.circe.jsonb.implicits._
 
 import uz.scala.domain.RefreshTokenId
 import uz.scala.domain.UserId

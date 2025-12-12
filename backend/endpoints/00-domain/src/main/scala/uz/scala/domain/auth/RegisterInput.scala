@@ -1,17 +1,16 @@
 package uz.scala.domain.auth
 
-import derevo.circe.magnolia.{decoder, encoder}
-import derevo.derive
-import eu.timepit.refined.types.string.NonEmptyString
+import io.circe.generic.JsonCodec
 import io.circe.refined._
+import eu.timepit.refined.types.string.NonEmptyString
 
-import uz.scala.domain.custom.refinements.Tel
+import uz.scala.domain.Phone
 
-@derive(encoder, decoder)
+@JsonCodec
 case class RegisterInput(
     email: NonEmptyString,
     password: NonEmptyString,
     firstName: NonEmptyString,
     lastName: NonEmptyString,
-    phone: Option[Tel] = None,
+    phone: Option[Phone] = None,
   )

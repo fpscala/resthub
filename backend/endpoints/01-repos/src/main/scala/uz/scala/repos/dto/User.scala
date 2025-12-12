@@ -4,6 +4,7 @@ import java.time.ZonedDateTime
 
 import eu.timepit.refined.types.string.NonEmptyString
 import io.scalaland.chimney.dsl.TransformationOps
+import io.scalaland.chimney.dsl._
 import tsec.passwordhashers.PasswordHash
 import tsec.passwordhashers.jca.SCrypt
 
@@ -12,6 +13,8 @@ import uz.scala.domain.Phone
 import uz.scala.domain.RoleId
 import uz.scala.domain.UserId
 import uz.scala.domain.enums.UserStatus
+import uz.scala.domain.users.Role
+import uz.scala.domain.users.{ User => DomainUser }
 import uz.scala.shared.EmailAddress
 import uz.scala.syntax.refined._
 
@@ -46,6 +49,16 @@ case class User(
       .into[AuthedUser]
       .withFieldConst(_.role, role)
       .withFieldConst(_.name, fullName)
+      .transform
+
+  def toDomain(role: uz.scala.domain.users.Role): DomainUser =
+    this
+      .into[DomainUser]
+      .withFieldConst(_.role, role)
+      .withFieldConst(_.firstName, firstName)
+      .withFieldConst(_.lastName, lastName)
+      .withFieldConst(_.phone, phone)
+      .withFieldConst(_.email, email)
       .transform
 
   def fullName: NonEmptyString = s"${firstName.value} ${lastName.value}"

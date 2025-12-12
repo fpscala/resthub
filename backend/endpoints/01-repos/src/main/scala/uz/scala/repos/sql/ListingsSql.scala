@@ -2,9 +2,7 @@ package uz.scala.repos.sql
 
 import doobie._
 import doobie.implicits._
-import doobie.postgres.implicits._
 import doobie.refined.implicits._
-import doobie.postgres.circe.jsonb.implicits._
 
 import uz.scala.domain.ListingId
 import uz.scala.domain.UserId

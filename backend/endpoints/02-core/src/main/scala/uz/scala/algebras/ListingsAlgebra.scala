@@ -106,7 +106,7 @@ object ListingsAlgebra {
 
         listingOpt <- listingsRepository.findById(id).transact(xa)
         listing <- listingOpt.fold(
-          AError.NotFound(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
+          AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
         )(_.pure[F])
 
         // Get owner info
@@ -117,14 +117,10 @@ object ListingsAlgebra {
 
         // Convert to domain User
         ownerRole <- owner.role.pure[F] // Assuming role is loaded
-        ownerDomain = owner.into[uz.scala.domain.users.User]
-          .withFieldComputed(_.role, _ => ownerRole)
-          .transform
+        ownerDomain = owner.toDomain(ownerRole)
 
         // Convert to ListingOutput
-        output = listing.into[ListingOutput]
-          .withFieldConst(_.owner, ownerDomain)
-          .transform
+        output = listing.toDomain(ownerDomain)
       } yield output
 
     override def search(filters: ListingFilters): F[PaginatedResponse[ListingOutput]] =
@@ -181,16 +177,10 @@ object ListingsAlgebra {
           AError.Internal("Owner not found").raiseError[F, dto.User]
         )(_.pure[F])
 
-        ownerDomain = owner.into[uz.scala.domain.users.User]
-          .withFieldComputed(_.role, _ => user.role)
-          .transform
+        ownerDomain = owner.toDomain(user.role)
 
         // Convert to ListingOutput
-        outputs = userListings.map { listing =>
-          listing.into[ListingOutput]
-            .withFieldConst(_.owner, ownerDomain)
-            .transform
-        }
+        outputs = userListings.map(_.toDomain(ownerDomain))
       } yield outputs
 
     override def delete(
@@ -205,12 +195,12 @@ object ListingsAlgebra {
         // Check listing exists
         listingOpt <- listingsRepository.findById(id).transact(xa)
         listing <- listingOpt.fold(
-          AError.NotFound(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
+          AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
         )(_.pure[F])
 
         // Check user is owner
         _ <- if (listing.ownerId != user.id) {
-          AError.Forbidden(NOT_LISTING_OWNER(lang)).raiseError[F, Unit]
+          AError.NotAllowed(NOT_LISTING_OWNER(lang)).raiseError[F, Unit]
         } else {
           ().pure[F]
         }

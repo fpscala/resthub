@@ -53,6 +53,20 @@ object Privilege extends Enum[Privilege] with CirceEnum[Privilege] with DoobieEn
     override val description: String = "Barcha rollarni ko'rish huquqi"
   }
 
+  // Listings
+  case object AdminListingsViewAll extends Privilege {
+    override val group: String = "LISTING"
+    override val description: String = "Barcha elonlarni ko'rish huquqi"
+  }
+  case object AdminListingsApprove extends Privilege {
+    override val group: String = "LISTING"
+    override val description: String = "Elonlarni tasdiqlash huquqi"
+  }
+  case object AdminListingsReject extends Privilege {
+    override val group: String = "LISTING"
+    override val description: String = "Elonlarni rad etish huquqi"
+  }
+
   // Assets
   case object CreateAsset extends Privilege {
     override val group: String = "ASSETS"

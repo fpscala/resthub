@@ -6,7 +6,6 @@ import doobie.postgres.implicits._
 import doobie.refined.implicits._
 
 import uz.scala.domain.UserId
-import uz.scala.domain.enums.UserStatus
 import uz.scala.doobie.Sql
 import uz.scala.doobie.syntax.all._
 import uz.scala.repos.dto

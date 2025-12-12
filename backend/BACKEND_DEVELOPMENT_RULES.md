@@ -234,6 +234,137 @@ override val public: HttpRoutes[F] =
 
 Shuning uchun DTO objectlarni `Sql[T]` dan extend qilish kerak.
 
+### 11. Circe Codecs
+**Qoida:** Har doim circe codec'lar uchun `@JsonCodec` ishlatish kerak, `@derive(encoder, decoder)` emas.
+
+**To'g'ri amaliyot:**
+```scala
+import io.circe.generic.JsonCodec
+
+@JsonCodec
+case class UserInput(
+  name: String,
+  email: String
+)
+```
+
+**Noto'g'ri misollar:**
+```scala
+// ❌ BUNDAY QILMASLIK KERAK
+import derevo.circe.magnolia.{decoder, encoder}
+import derevo.derive
+
+@derive(encoder, decoder)
+case class UserInput(
+  name: String,
+  email: String
+)
+```
+
+### 12. Newtype Codecs
+**Qoida:** Newtype'lar uchun ortiqcha decoder/encoder yozish shart emas, `import uz.scala.syntax.circe._` import qilsang yetarli.
+
+**To'g'ri amaliyot:**
+```scala
+import uz.scala.syntax.circe._
+
+case class UserListing(listingId: ListingId) // ListingId newtype
+```
+
+**Noto'g'ri misollar:**
+```scala
+// ❌ BUNDAY QILMASLIK KERAK
+object ListingId {
+  implicit val listingIdDecoder: Decoder[ListingId] = Decoder.forProduct1("listingId")(ListingId.apply)
+  implicit val listingIdEncoder: Encoder[ListingId] = Encoder.forProduct1("listingId")(_.value)
+}
+```
+
+### 13. JSONB Field Handling
+**Qoida:** Agar DTO object da Json ishlatilsa `import doobie.postgres.circe.jsonb.implicits._` qo'shish kerak, bu jsonb uchun meta implicit beradi.
+
+**To'g'ri amaliyot:**
+```scala
+import doobie.postgres.circe.jsonb.implicits._
+
+case class RefreshToken(
+    id: RefreshTokenId,
+    deviceInfo: Option[io.circe.Json] = None, // Json field
+    // ...
+)
+```
+
+**Noto'g'ri misollar:**
+```scala
+// ❌ BUNDAY QILMASLIK KERAK
+case class RefreshToken(
+    id: RefreshTokenId,
+    deviceInfo: Option[io.circe.Json] = None, // Json field lekin jsonb implicits yo'q
+    // ...
+)
+```
+
+### 14. DTO Transformations
+**Qoida:** DTO objectlarda `toDomain` methodi case class ichida, `fromDomain` methodi companion object ichida yozish kerak, Chimney transformation dan foydalanmaslik kerak.
+
+**To'g'ri amaliyot:**
+```scala
+case class Listing(
+    id: ListingId,
+    title: NonEmptyString,
+    price: Money,
+    // ...
+) {
+  def toDomain: ListingOutput =
+    ListingOutput(
+      id = id,
+      title = title,
+      price = price.amount, // Money to BigDecimal
+      // ...
+    )
+}
+
+object Listing {
+  def fromDomain(domain: ListingOutput): Listing =
+    Listing(
+      id = domain.id,
+      title = domain.title,
+      price = Money(domain.price), // BigDecimal to Money
+      // ...
+    )
+}
+```
+
+**Noto'g'ri misollar:**
+```scala
+// ❌ BUNDAY QILMASLIK KERAK
+listing.into[ListingOutput]
+  .withFieldConst(_.owner, ownerDomain)
+  .withFieldComputed(_.price, _.price.amount)
+  .transform
+```
+
+### 15. Doobie Import Conflicts
+**Qoida:** `uz.scala.doobie.syntax.all._` va `doobie.postgres.implicits._` lar o'rtasida conflict bor. O'z librarylaringiz prioritetga ega, shuning uchun `doobie.postgres.implicits._` ni ishlatmaslik kerak.
+
+**To'g'ri amaliyot:**
+```scala
+import doobie._
+import doobie.implicits._
+import doobie.refined.implicits._
+import uz.scala.doobie.syntax.all._  // ✅ O'z library implicitlari
+// ❌ doobie.postgres.implicits._ ni qo'shmang
+```
+
+**Noto'g'ri misollar:**
+```scala
+// ❌ BUNDAY QILMASLIK KERAK (conflict)
+import doobie._
+import doobie.implicits._
+import doobie.postgres.implicits._  // Conflict!
+import uz.scala.doobie.syntax.all._
+```
+
 ## Xulosa
 
 Bu qoidalar backend kodini izchil, maintainable va scalable qilish uchun yaratilgan. Har bir yangi feature implement qilishda bu qoidalarga qat'iy amal qilish shart.

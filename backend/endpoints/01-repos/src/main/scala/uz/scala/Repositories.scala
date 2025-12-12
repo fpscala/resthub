@@ -23,5 +23,7 @@ object Repositories {
       refreshTokens = RefreshTokensRepository.make,
       listings = ListingsRepository.make,
       contracts = ContractsRepository.make,
+      telegramUsers = TelegramUsersRepository.make,
+      telegramSessions = TelegramSessionsRepository.make,
     )
 }

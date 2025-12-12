@@ -2,7 +2,9 @@ package uz.scala.repos
 
 import java.time.ZonedDateTime
 
+import cats.implicits._
 import doobie.ConnectionIO
+import doobie.implicits._
 
 import uz.scala.domain.RefreshTokenId
 import uz.scala.domain.UserId

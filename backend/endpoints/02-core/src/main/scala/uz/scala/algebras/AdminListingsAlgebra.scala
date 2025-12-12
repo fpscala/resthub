@@ -63,7 +63,7 @@ object AdminListingsAlgebra {
       if (user.role.privileges.contains(privilege)) {
         ().pure[F]
       } else {
-        AError.Forbidden(INSUFFICIENT_PRIVILEGES_ADMIN(lang)).raiseError[F, Unit]
+        AError.NotAllowed(INSUFFICIENT_PRIVILEGES_ADMIN(lang)).raiseError[F, Unit]
       }
 
     override def getAllListings(
@@ -97,8 +97,10 @@ object AdminListingsAlgebra {
               .withFieldComputed(_.role, _ => user.role) // TODO: Load actual role
               .transform
 
-            listing.into[ListingOutput]
+            listing
+              .into[ListingOutput]
               .withFieldConst(_.owner, ownerDomain)
+              .withFieldComputed(_.price, _.price.amount) // Convert Money to BigDecimal
               .transform
           }
         }
@@ -122,7 +124,7 @@ object AdminListingsAlgebra {
         // Check listing exists
         listingOpt <- listingsRepository.findById(id).transact(xa)
         listing <- listingOpt.fold(
-          AError.NotFound(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
+          AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
         )(_.pure[F])
 
         // Check listing is PENDING
@@ -156,7 +158,7 @@ object AdminListingsAlgebra {
         // Check listing exists
         listingOpt <- listingsRepository.findById(id).transact(xa)
         listing <- listingOpt.fold(
-          AError.NotFound(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
+          AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
         )(_.pure[F])
 
         // Check listing is PENDING

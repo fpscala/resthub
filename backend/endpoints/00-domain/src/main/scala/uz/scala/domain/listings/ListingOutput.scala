@@ -5,6 +5,7 @@ import java.time.ZonedDateTime
 import eu.timepit.refined.types.string.NonEmptyString
 import io.circe.generic.JsonCodec
 import io.circe.refined._
+import squants.Money
 
 import uz.scala.domain.ListingId
 import uz.scala.domain.enums.ListingStatus
@@ -17,7 +18,7 @@ case class ListingOutput(
     owner: User,
     title: NonEmptyString,
     description: NonEmptyString,
-    price: BigDecimal,
+    price: Money,
     city: NonEmptyString,
     images: List[String],
     status: ListingStatus,

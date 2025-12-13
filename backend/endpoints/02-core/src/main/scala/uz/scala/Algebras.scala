@@ -25,6 +25,7 @@ case class Algebras[F[_]](
     listings: ListingsAlgebra[F],
     adminListings: AdminListingsAlgebra[F],
     contracts: ContractsAlgebra[F],
+    telegramBot: TelegramBotAlgebra[F],
   )
 
 object Algebras {
@@ -36,6 +37,7 @@ object Algebras {
       mailer: Mailer[F],
       frontendBaseUrl: String,
       activationPath: String,
+      botApi: telegramium.bots.high.Api[F],
     )(implicit
       xa: Transactor[F],
       lifter: F ~> ConnectionIO,
@@ -48,6 +50,12 @@ object Algebras {
     val adminListings = AdminListingsAlgebra.make[F](repositories.listings, repositories.users)
     val contracts =
       ContractsAlgebra.make[F](repositories.contracts, repositories.listings, repositories.users)
+    val telegramBot = TelegramBotAlgebra.make[F](
+      botApi,
+      repositories.telegramUsers,
+      repositories.telegramSessions,
+      listings,
+    )
 
     Algebras[F](
       auth = Auth.make[F](
@@ -67,6 +75,7 @@ object Algebras {
       listings = listings,
       adminListings = adminListings,
       contracts = contracts,
+      telegramBot = telegramBot,
     )
   }
 }

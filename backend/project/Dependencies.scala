@@ -34,7 +34,7 @@ object Dependencies {
     lazy val uzscala = "1.0.18"
     lazy val mailer = "1.4.7"
     lazy val `fs2-kafka` = "3.0.1"
-    lazy val telegramium = "9.76.0"
+    lazy val telegramium = "10.902.0"
   }
   trait LibGroup {
     def all: Seq[ModuleID]

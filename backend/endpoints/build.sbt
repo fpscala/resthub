@@ -27,9 +27,11 @@ lazy val `endpoints-core` =
   project
     .in(file("02-core"))
     .settings(
-      libraryDependencies ++= Seq(
-        dev.profunktor.`http4s-jwt-auth`
-      )
+      libraryDependencies ++=
+        Dependencies.io.github.apimorphism.telegramium.all ++
+          Seq(
+            dev.profunktor.`http4s-jwt-auth`
+          )
     )
     .dependsOn(
       `endpoints-repos`,

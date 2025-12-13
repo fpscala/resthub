@@ -4,6 +4,7 @@ import uz.scala.auth.AuthConfig
 import uz.scala.aws.s3.AWSConfig
 import uz.scala.doobie.DataBaseConfig
 import uz.scala.flyway.MigrationsConfig
+import uz.scala.http.BotConfig
 import uz.scala.http4s.HttpServerConfig
 import uz.scala.jobs.JobsRunnerConfig
 import uz.scala.kafka.KafkaConfig
@@ -20,6 +21,7 @@ case class Config(
     mailer: MailerConfig,
     frontend: FrontendConfig,
     kafka: KafkaConfig,
+    bot: BotConfig,
   ) {
   lazy val migrations: MigrationsConfig = MigrationsConfig(
     hostname = database.host.value,

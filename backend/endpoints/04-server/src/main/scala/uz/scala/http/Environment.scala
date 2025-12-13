@@ -10,6 +10,7 @@ import uz.scala.http4s.HttpServerConfig
 
 case class Environment[F[_]: Async](
     config: HttpServerConfig,
+    botConfig: BotConfig,
     middleware: server.AuthMiddleware[F, AuthedUser],
     appMiddleware: server.AuthMiddleware[F, Unit],
     algebras: Algebras[F],

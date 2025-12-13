@@ -11,10 +11,14 @@ import doobie.ConnectionIO
 import doobie.WeakAsync
 import doobie.syntax.connectionio.toConnectionIOOps
 import eu.timepit.refined.pureconfig._
+import org.http4s.blaze.client.BlazeClientBuilder
+import org.http4s.client.Client
 import org.http4s.server
 import org.typelevel.log4cats.Logger
 import pureconfig.generic.auto.exportReader
 import pureconfig.module.cron4s._
+import telegramium.bots.high.Api
+import telegramium.bots.high.BotApi
 
 import uz.scala.Algebras
 import uz.scala.JobsEnvironment
@@ -35,6 +39,7 @@ case class Environment[F[_]: Async: Logger: Random](
     repositories: Repositories[ConnectionIO],
     s3Client: S3Client[F],
     redis: RedisClient[F],
+    httpClient: Client[F],
     middleware: server.AuthMiddleware[F, AuthedUser],
     appMiddleware: server.AuthMiddleware[F, Unit],
   )(implicit
@@ -42,6 +47,11 @@ case class Environment[F[_]: Async: Logger: Random](
     lifter: F ~> ConnectionIO,
   ) {
   private val mailer: Mailer[F] = Mailer.make[F](config.mailer)
+
+  private val botApi: Api[F] = BotApi(
+    httpClient,
+    baseUrl = s"https://api.telegram.org/bot${config.bot.token}",
+  )
 
   private val algebras: Algebras[F] =
     Algebras.make[F](
@@ -52,12 +62,14 @@ case class Environment[F[_]: Async: Logger: Random](
       mailer,
       config.frontend.baseUrl.value,
       config.frontend.activationPath.value,
+      botApi,
     )
   lazy val toServer: ServerEnvironment[F] =
     ServerEnvironment(
       middleware = middleware,
       appMiddleware = appMiddleware,
       config = config.http,
+      botConfig = config.bot,
       algebras = algebras,
       s3Client = s3Client,
     )
@@ -82,15 +94,18 @@ object Environment {
       implicit0(lifter: (F ~> ConnectionIO)) <- WeakAsync.liftK[F, ConnectionIO]
 
       s3Client <- S3Client.resource(config.awsConfig)
+      httpClient <- BlazeClientBuilder[F].resource
       env = Environment[F](
         config = config,
         repositories = repositories,
         s3Client = s3Client,
         redis = redis,
+        httpClient = httpClient,
         middleware = middleware,
         appMiddleware = appMiddleware,
       )
       _ <- Resource.eval(env.algebras.assets.initializeBucket())
+      _ <- Resource.eval(env.algebras.telegramBot.setupWebhook(config.bot.webhookUrl))
 
     } yield env
 }

@@ -25,7 +25,8 @@ object Dependencies {
     lazy val derevo = "0.13.0"
     lazy val postgresql = "42.7.5"
     lazy val awsSdk = "1.12.583"
-    lazy val awsSoftwareS3 = "2.30.16"
+    lazy val awsSoftwareS3 = "2.40.7"
+    lazy val `fs2-aws` = "3.1.1"
     lazy val weaver = "0.8.4"
     lazy val chimney = "1.7.3"
     lazy val `test-container` = "1.20.4"
@@ -83,14 +84,16 @@ object Dependencies {
     }
 
     object amazonaws extends LibGroup {
-      private def awsJdk(artifact: String): ModuleID =
-        "com.amazonaws" % artifact % Versions.awsSdk
+      // AWS SDK v2 (software.amazon.awssdk) - Java 8+ compatible, no JAXB issues
+      private def aws2(artifact: String): ModuleID =
+        "software.amazon.awssdk" % artifact % Versions.awsSoftwareS3
 
-      lazy val awsCore: ModuleID = awsJdk("aws-java-sdk-core")
-      lazy val awsS3: ModuleID = awsJdk("aws-java-sdk-s3")
-      val awsSoftwareS3: ModuleID = "software.amazon.awssdk" % "s3" % Versions.awsSoftwareS3
+      lazy val s3: ModuleID = aws2("s3")
+      lazy val sts: ModuleID = aws2("sts")
+      lazy val auth: ModuleID = aws2("auth")
+      lazy val urlConnectionClient: ModuleID = aws2("url-connection-client")
 
-      override def all: Seq[ModuleID] = Seq(awsCore, awsS3, awsSoftwareS3)
+      override def all: Seq[ModuleID] = Seq(s3, sts, auth, urlConnectionClient)
     }
 
     object disneystreaming extends LibGroup {
@@ -105,6 +108,9 @@ object Dependencies {
     }
   }
   object io {
+    object laserdisc {
+      lazy val `fs2-aws-s3`: ModuleID = "io.laserdisc" %% "fs2-aws-s3" % Versions.`fs2-aws`
+    }
     object scalaland {
       lazy val chimney: ModuleID = "io.scalaland" %% "chimney" % Versions.chimney
     }

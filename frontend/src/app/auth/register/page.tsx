@@ -19,7 +19,9 @@ import { isValidEmail } from '@/lib/utils';
 export default function RegisterPage() {
   const { register } = useAuth();
   const [formData, setFormData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -29,8 +31,16 @@ export default function RegisterPage() {
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Name is required';
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    }
+
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    }
+
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone number is required';
     }
 
     if (!formData.email) {
@@ -59,7 +69,9 @@ export default function RegisterPage() {
     if (!validate()) return;
 
     await register.mutateAsync({
-      name: formData.name,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      phone: formData.phone,
       email: formData.email,
       password: formData.password,
     });
@@ -74,14 +86,35 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="First Name"
+              placeholder="John"
+              value={formData.firstName}
+              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              error={errors.firstName}
+              required
+              autoComplete="given-name"
+            />
+            <Input
+              label="Last Name"
+              placeholder="Doe"
+              value={formData.lastName}
+              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              error={errors.lastName}
+              required
+              autoComplete="family-name"
+            />
+          </div>
+
           <Input
-            label="Full Name"
-            placeholder="John Doe"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            error={errors.name}
+            label="Phone Number"
+            placeholder="+998 90 123 45 67"
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            error={errors.phone}
             required
-            autoComplete="name"
+            autoComplete="tel"
           />
 
           <Input

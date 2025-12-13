@@ -2,24 +2,62 @@
 
 export interface User {
   id: string;
-  name: string;
   email: string;
-  role: 'USER' | 'ADMIN';
+  firstName: string;
+  lastName: string;
+  phone: string;
+  role: Role;
+  status: 'ACTIVE' | 'INACTIVE' | 'EXPIRED';
+  createdAt: string;
+  updatedAt?: string;
+  marketId?: string;
+}
+
+export interface Role {
+  id: string;
+  name: string;
+  privileges: Privilege[];
+  description?: string;
+  isSystem?: boolean;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Privilege {
+  // User management
+  'create_user'?: boolean;
+  'update_user'?: boolean;
+  'update_any_user'?: boolean;
+  'delete_user'?: boolean;
+  'view_users'?: boolean;
+  'create_super_user'?: boolean;
+  // Role management
+  'create_role'?: boolean;
+  'update_role'?: boolean;
+  'delete_role'?: boolean;
+  'view_roles'?: boolean;
+  // Listings
+  'admin_listings_view_all'?: boolean;
+  'admin_listings_approve'?: boolean;
+  'admin_listings_reject'?: boolean;
+  // Assets
+  'create_asset'?: boolean;
 }
 
 export interface Listing {
   id: string;
   ownerId: string;
-  owner?: User;
   title: string;
   description: string;
   price: number;
   city: string;
   images: string[];
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  rejectionReason?: string;
   createdAt: string;
-  updatedAt?: string;
+  updatedAt: string;
+  approvedAt?: string;
+  approvedBy?: string;
 }
 
 export interface Contract {
@@ -32,9 +70,11 @@ export interface Contract {
 // API Request/Response Types
 
 export interface RegisterRequest {
-  name: string;
   email: string;
   password: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
 }
 
 export interface LoginRequest {
@@ -42,13 +82,23 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RefreshTokenRequest {
+  refreshToken: string;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  expiresIn: number;
+}
+
 export interface AuthResponse {
   user: User;
-  token: string;
+  tokens: AuthTokens;
 }
 
 export interface CreateListingRequest {
-  ownerId: string;
   title: string;
   description: string;
   price: number;
@@ -78,7 +128,7 @@ export interface GenerateContractResponse {
 }
 
 export interface PaginatedResponse<T> {
-  items: T[];
+  data: T[];
   total: number;
   page?: number;
   size?: number;
@@ -125,8 +175,10 @@ export interface LoginFormData {
 }
 
 export interface RegisterFormData {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
+  phone: string;
   password: string;
   confirmPassword: string;
 }
@@ -144,5 +196,20 @@ export interface CreateListingFormData {
 export interface ApiError {
   message: string;
   status?: number;
-  errors?: Record<string, string[]>;
+  error_code?: string;
+  details?: Record<string, any>;
+}
+
+// Additional useful types
+export interface SuccessResponse {
+  message: string;
+}
+
+export interface ObjectIdResponse {
+  id: string;
+  message?: string;
+}
+
+export interface RejectListingRequest {
+  reason: string;
 }

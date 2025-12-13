@@ -67,7 +67,7 @@ function AdminContent() {
         </div>
       ) : data ? (
         <AdminTable
-          listings={data.items}
+          listings={data.data}
           onApprove={handleApprove}
           onReject={handleReject}
           isLoading={approveMutation.isPending || rejectMutation.isPending}

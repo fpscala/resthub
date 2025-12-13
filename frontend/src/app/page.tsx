@@ -106,9 +106,9 @@ export default function HomePage() {
           <div className="rounded-lg bg-red-50 p-4 text-red-800">
             Error loading listings. Please try again.
           </div>
-        ) : data && data.items.length > 0 ? (
+        ) : data && data.data.length > 0 ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {data.items.map((listing) => (
+            {data.data.map((listing) => (
               <ListingCard
                 key={listing.id}
                 listing={listing}

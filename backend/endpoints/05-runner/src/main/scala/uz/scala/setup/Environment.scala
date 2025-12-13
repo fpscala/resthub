@@ -4,6 +4,7 @@ import cats.effect.Async
 import cats.effect.Resource
 import cats.effect.std.Console
 import cats.effect.std.Random
+import cats.implicits.catsSyntaxApplicativeByName
 import cats.~>
 import dev.profunktor.redis4cats.Redis
 import dev.profunktor.redis4cats.effect.Log.NoOp.instance
@@ -19,7 +20,6 @@ import pureconfig.generic.auto.exportReader
 import pureconfig.module.cron4s._
 import telegramium.bots.high.Api
 import telegramium.bots.high.BotApi
-
 import uz.scala.Algebras
 import uz.scala.JobsEnvironment
 import uz.scala.Repositories
@@ -29,7 +29,7 @@ import uz.scala.domain.AuthedUser
 import uz.scala.domain.enums.Privilege
 import uz.scala.doobie.DoobieTransaction
 import uz.scala.flyway.Migrations
-import uz.scala.http.{ Environment => ServerEnvironment }
+import uz.scala.http.{Environment => ServerEnvironment}
 import uz.scala.mailer.Mailer
 import uz.scala.redis.RedisClient
 import uz.scala.utils.ConfigLoader
@@ -50,7 +50,7 @@ case class Environment[F[_]: Async: Logger: Random](
 
   private val botApi: Api[F] = BotApi(
     httpClient,
-    baseUrl = s"https://api.telegram.org/bot${config.bot.token}",
+    baseUrl = s"https://api.telegram.org/bot${config.telegram.token}",
   )
 
   private val algebras: Algebras[F] =
@@ -69,7 +69,7 @@ case class Environment[F[_]: Async: Logger: Random](
       middleware = middleware,
       appMiddleware = appMiddleware,
       config = config.http,
-      botConfig = config.bot,
+      botConfig = config.telegram,
       algebras = algebras,
       s3Client = s3Client,
     )
@@ -105,7 +105,7 @@ object Environment {
         appMiddleware = appMiddleware,
       )
       _ <- Resource.eval(env.algebras.assets.initializeBucket())
-      _ <- Resource.eval(env.algebras.telegramBot.setupWebhook(config.bot.webhookUrl))
+      _ <- Resource.eval(env.algebras.telegramBot.setupWebhook(config.telegram.webhookUrl)).whenA(config.telegram.useWebhook)
 
     } yield env
 }

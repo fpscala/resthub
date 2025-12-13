@@ -21,7 +21,7 @@ case class Config(
     mailer: MailerConfig,
     frontend: FrontendConfig,
     kafka: KafkaConfig,
-    bot: BotConfig,
+    telegram: BotConfig,
   ) {
   lazy val migrations: MigrationsConfig = MigrationsConfig(
     hostname = database.host.value,

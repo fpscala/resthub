@@ -1,9 +1,9 @@
 package uz.scala.domain.enums
 
 import enumeratum._
-import enumeratum.EnumEntry.Snakecase
+import enumeratum.EnumEntry.UpperSnakecase
 
-sealed trait ListingStatus extends EnumEntry with Snakecase
+sealed trait ListingStatus extends EnumEntry with UpperSnakecase
 
 object ListingStatus extends Enum[ListingStatus] with CirceEnum[ListingStatus] with DoobieEnum[ListingStatus] {
   case object Pending extends ListingStatus

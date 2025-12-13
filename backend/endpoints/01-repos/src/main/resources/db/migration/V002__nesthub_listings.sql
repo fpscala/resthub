@@ -41,16 +41,6 @@ CREATE TABLE contracts (
 -- Index for contracts table
 CREATE INDEX idx_contracts_listing ON contracts(listing_id);
 
--- Add privileges for listing management
-INSERT INTO privileges (name) VALUES
-  ('listings.view'),
-  ('listings.create'),
-  ('listings.delete'),
-  ('admin.listings.view_all'),
-  ('admin.listings.approve'),
-  ('admin.listings.reject')
-ON CONFLICT (name) DO NOTHING;
-
 -- Function to automatically update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_listings_updated_at()
 RETURNS TRIGGER AS $$

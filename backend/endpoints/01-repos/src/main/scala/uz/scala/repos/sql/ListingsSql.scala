@@ -28,7 +28,7 @@ private[repos] object ListingsSql extends Sql[dto.Listing] {
     val limitClause = filters.size.getOrElse(20)
     val offsetClause = filters.page.map(page => (page - 1) * limitClause).getOrElse(0)
 
-    (sql"""SELECT $columns FROM $table""" ++ whereClause ++ fr"ORDER BY created_at DESC LIMIT $limitClause OFFSET $offsetClause")
+    sql"""SELECT $columns FROM $table $whereClause ORDER BY created_at DESC LIMIT $limitClause OFFSET $offsetClause"""
       .query[dto.Listing]
   }
 
@@ -40,7 +40,7 @@ private[repos] object ListingsSql extends Sql[dto.Listing] {
 
     val whereClause = Fragments.whereAndOpt(cityFilter, minPriceFilter, maxPriceFilter, statusFilter)
 
-    (sql"""SELECT COUNT(*) FROM $table""" ++ whereClause).query[Long]
+    sql"""SELECT COUNT(*) FROM $table $whereClause""".query[Long]
   }
 
   val insert: Update[dto.Listing] = Update[dto.Listing](

@@ -1,788 +1,1174 @@
 openapi: 3.1.0
 info:
-  description: "RoadHub API"
+  description: "NestHub API - Rental Marketplace Platform"
   version: 1.0.0
-  title: RoadHubAPI
+  title: NestHub API
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
 tags:
   - name: Auth
+    description: Authentication endpoints
   - name: Users
+    description: User management
   - name: Roles
-  - name: Assets
+    description: Role and privilege management
+  - name: Listings
+    description: Rental listings
+  - name: Admin
+    description: Admin endpoints for listings management
+  - name: Contracts
+    description: Contract generation
+  - name: Files
+    description: File upload and storage
+  - name: Telegram
+    description: Telegram bot webhook
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://api.nesthub.uz
+    description: Production server
+
 paths:
-  /auth/me:
-    get:
-      security:
-        - bearerAuth: [ ]
-      tags:
-        - Auth
-      summary: Get current user
-      description: "Get current user"
-      operationId: getCurrentUser
-      parameters:
-        - name: Accept-Language
-          in: header
-          description: Language
-          required: false
-          schema:
-            type: string
-            example: en
-      responses:
-        "200":
-          description: Successful operation
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AuthedUser"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
   /auth/login:
     post:
       tags:
         - Auth
-      summary: Access token
-      description: "Login post for authentication"
+      summary: Login user
+      description: Authenticate user with email and password
       operationId: authLogin
       parameters:
         - name: Accept-Language
           in: header
-          description: Language
+          description: Language preference (en, ru, uz)
           required: false
           schema:
             type: string
-            example: en
+            enum: [en, ru, uz]
+            default: en
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UserCredentials"
-        description: phone and password for authentication
+              $ref: '#/components/schemas/UserCredentials'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register new user
+      description: Create a new user account
+      operationId: authRegister
+      parameters:
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      requestBody:
         required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterInput'
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: Registration successful
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthTokens"
-        "422":
-          description: Invalid json
+                $ref: '#/components/schemas/AuthTokens'
+        '409':
+          description: Email already exists
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorMessage"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/ErrorResponse'
+
   /auth/refresh:
-    get:
-      security:
-        - bearerAuth: [ ]
+    post:
       tags:
         - Auth
-      summary: Refresh token
-      description: "Refresh token"
-      operationId: refresh
+      summary: Refresh access token
+      description: Get new access token using refresh token
+      operationId: authRefresh
       parameters:
         - name: Accept-Language
           in: header
-          description: Language
+          description: Language preference (en, ru, uz)
           required: false
           schema:
             type: string
-            example: en
+            enum: [en, ru, uz]
+            default: en
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: Token refreshed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthTokens"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
+                $ref: '#/components/schemas/AuthTokens'
+        '401':
+          description: Invalid or expired refresh token
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/ErrorResponse'
+
   /auth/logout:
-    get:
+    post:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Auth
-      summary: Logs out current logged in user session
-      description: "Logout"
-      operationId: logoutUser
+      summary: Logout user
+      description: Invalidate refresh token
+      operationId: authLogout
       parameters:
         - name: Accept-Language
           in: header
-          description: Language
+          description: Language preference (en, ru, uz)
           required: false
           schema:
             type: string
-            example: en
+            enum: [en, ru, uz]
+            default: en
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
       responses:
-        "204":
-          description: Successful operation
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
+        '204':
+          description: Logout successful
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/me:
+    get:
+      security:
+        - bearerAuth: []
+      tags:
+        - Auth
+      summary: Get current user
+      description: Get authenticated user information
+      operationId: getCurrentUser
+      parameters:
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      responses:
+        '200':
+          description: User information
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/AuthedUser'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /users:
     post:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Users
       summary: Create user
-      description: Create user
+      description: Create new user (admin only)
       operationId: createUser
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UserInput"
+              $ref: '#/components/schemas/CreateUserInput'
       responses:
-        "201":
-          description: Successful operation
+        '201':
+          description: User created successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ObjectId"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
+                $ref: '#/components/schemas/ObjectIdResponse'
+        '403':
+          description: Insufficient privileges
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
-        "409":
-          description: Conflict
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/ErrorResponse'
+
   /users/search:
     post:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Users
-      summary: Get users by filters
-      description: Get users by filters and pagination
-      operationId: getUsers
+      summary: Search users
+      description: Search users with filters and pagination
+      operationId: searchUsers
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UserFilters"
+              $ref: '#/components/schemas/UserFilters'
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: List of users
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - data
-                  - total
-                properties:
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      $ref: "#/components/schemas/User"
-                  total:
-                    type: integer
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/PaginatedUsersResponse'
+
   /users/{id}:
     put:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Users
       summary: Update user
-      description: Update user
+      description: Update user information
+      operationId: updateUser
       parameters:
-        - name: Accept-Language
-          in: header
-          description: Language
-          required: false
-          schema:
-            type: string
-            example: en
         - name: id
           in: path
           required: true
           schema:
             type: string
             format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateUserInput"
+              $ref: '#/components/schemas/UpdateUserInput'
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: User updated successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessMessage"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
-    delete:
-      security:
-        - bearerAuth: [ ]
-      tags:
-        - Users
-      summary: Delete user
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      description: Delete user
-      responses:
-        "200":
-          description: Successful operation
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessMessage"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/SuccessResponse'
+
   /users/{id}/password:
     put:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Users
       summary: Update user password
-      description: Update user password
+      description: Change user password
+      operationId: updateUserPassword
       parameters:
-        - name: Accept-Language
-          in: header
-          description: Language
-          required: false
-          schema:
-            type: string
-            example: en
         - name: id
           in: path
           required: true
           schema:
             type: string
             format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdatePasswordInput"
+              $ref: '#/components/schemas/UpdatePasswordInput'
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: Password updated successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessMessage"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /users/{id}:
+    delete:
+      security:
+        - bearerAuth: []
+      tags:
+        - Users
+      summary: Delete user
+      description: Delete user account
+      operationId: deleteUser
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      responses:
+        '200':
+          description: User deleted successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/SuccessResponse'
+
   /roles:
     get:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Roles
       summary: Get all roles
+      description: List all available roles
+      operationId: getAllRoles
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: List of roles
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Role"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                  $ref: '#/components/schemas/Role'
+
     post:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Roles
       summary: Create role
-      description: Create role
+      description: Create new role with privileges
       operationId: createRole
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RoleInput"
+              $ref: '#/components/schemas/CreateRoleInput'
       responses:
-        "201":
-          description: Successful operation
+        '201':
+          description: Role created successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ObjectId"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/ObjectIdResponse'
+
   /roles/{id}:
     put:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Roles
       summary: Update role
-      description: Update role
+      description: Update role information
       operationId: updateRole
       parameters:
-        - name: Accept-Language
-          in: header
-          description: Language
-          required: false
-          schema:
-            type: string
-            example: en
         - name: id
           in: path
           required: true
           schema:
             type: string
             format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RoleUpdateInput"
+              $ref: '#/components/schemas/UpdateRoleInput'
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: Role updated successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessMessage"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /roles/{id}:
     delete:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Roles
       summary: Delete role
       description: Delete role
       operationId: deleteRole
       parameters:
-        - name: Accept-Language
-          in: header
-          description: Language
-          required: false
-          schema:
-            type: string
-            example: en
         - name: id
           in: path
           required: true
           schema:
             type: string
             format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: Role deleted successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SuccessMessage"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/SuccessResponse'
+
   /roles/privileges:
     get:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
         - Roles
       summary: Get all privileges
+      description: List all available privileges grouped by category
+      operationId: getAllPrivileges
       responses:
-        "200":
-          description: Successful operation
+        '200':
+          description: List of privileges
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/PrivilegesMap"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
+                $ref: '#/components/schemas/PrivilegesResponse'
+
+  /listings:
+    get:
+      tags:
+        - Listings
+      summary: Search listings
+      description: Search public listings with filters
+      operationId: searchListings
+      parameters:
+        - name: city
+          in: query
+          description: Filter by city
+          required: false
+          schema:
+            type: string
+        - name: minPrice
+          in: query
+          description: Minimum price filter
+          required: false
+          schema:
+            type: number
+            format: double
+        - name: maxPrice
+          in: query
+          description: Maximum price filter
+          required: false
+          schema:
+            type: number
+            format: double
+        - name: page
+          in: query
+          description: Page number (default: 1)
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          description: Page size (default: 20)
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of listings
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
-  /assets:
+                $ref: '#/components/schemas/PaginatedListingsResponse'
+
     post:
       security:
-        - bearerAuth: [ ]
+        - bearerAuth: []
       tags:
-        - Assets
-      summary: Create asset
-      description: Create asset
-      operationId: createAsset
+        - Listings
+      summary: Create listing
+      description: Create new rental listing
+      operationId: createListing
+      parameters:
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingInput'
+      responses:
+        '201':
+          description: Listing created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /listings/my:
+    get:
+      security:
+        - bearerAuth: []
+      tags:
+        - Listings
+      summary: Get my listings
+      description: Get current user's listings
+      operationId: getMyListings
+      responses:
+        '200':
+          description: List of user's listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingsResponse'
+
+  /listings/{id}:
+    get:
+      tags:
+        - Listings
+      summary: Get listing
+      description: Get single listing by ID
+      operationId: getListing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      responses:
+        '200':
+          description: Listing details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listing'
+        '404':
+          description: Listing not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /listings/{id}:
+    delete:
+      security:
+        - bearerAuth: []
+      tags:
+        - Listings
+      summary: Delete listing
+      description: Delete listing (owner only)
+      operationId: deleteListing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      responses:
+        '200':
+          description: Listing deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /admin/listings:
+    get:
+      security:
+        - bearerAuth: []
+      tags:
+        - Admin
+      summary: Get all listings (admin)
+      description: Get all listings with optional status filter
+      operationId: adminGetListings
+      parameters:
+        - name: status
+          in: query
+          description: Filter by status
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, APPROVED, REJECTED]
+        - name: page
+          in: query
+          description: Page number (default: 1)
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: size
+          in: query
+          description: Page size (default: 20)
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      responses:
+        '200':
+          description: List of listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedListingsResponse'
+
+  /admin/listings/{id}/approve:
+    post:
+      security:
+        - bearerAuth: []
+      tags:
+        - Admin
+      summary: Approve listing
+      description: Approve pending listing
+      operationId: approveListing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      responses:
+        '200':
+          description: Listing approved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /admin/listings/{id}/reject:
+    post:
+      security:
+        - bearerAuth: []
+      tags:
+        - Admin
+      summary: Reject listing
+      description: Reject pending listing with reason
+      operationId: rejectListing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectListingInput'
+      responses:
+        '200':
+          description: Listing rejected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /contracts/generate:
+    post:
+      security:
+        - bearerAuth: []
+      tags:
+        - Contracts
+      summary: Generate contract
+      description: Generate rental contract PDF for approved listing
+      operationId: generateContract
+      parameters:
+        - name: Accept-Language
+          in: header
+          description: Language preference (en, ru, uz)
+          required: false
+          schema:
+            type: string
+            enum: [en, ru, uz]
+            default: en
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateContractInput'
+      responses:
+        '200':
+          description: Contract generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateContractResponse'
+
+  /s3/presign:
+    get:
+      security:
+        - bearerAuth: []
+      tags:
+        - Files
+      summary: Get presigned upload URL
+      description: Get presigned URL for direct file upload to S3
+      operationId: getPresignedUrl
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: S3 object key (e.g., uploads/listing-123/image.jpg)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Presigned URL generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignResponse'
+        '400':
+          description: Missing key parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /upload:
+    post:
+      security:
+        - bearerAuth: []
+      tags:
+        - Files
+      summary: Upload file
+      description: Upload file directly (multipart form)
+      operationId: uploadFile
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
+              required:
+                - file
               properties:
                 file:
                   type: string
                   format: binary
+                type:
+                  type: string
+                  description: Optional file type/category
       responses:
-        "201":
-          description: Successful operation
+        '201':
+          description: File uploaded successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ObjectId"
-        "401":
-          description: Unauthorized - Bearer token missing or invalid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "unauthorized"
-                  message:
-                    type: string
-                    example: "Bearer token not found. Please provide a valid Authorization header."
-        "403":
-          description: Authentication error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorMessage"
+                $ref: '#/components/schemas/FileResponse'
 
-servers:
-  - url: http://localhost:8000
-  - url: https://job.scala.uz/api/v1
+  /bot/webhook/{token}:
+    post:
+      tags:
+        - Telegram
+      summary: Telegram bot webhook
+      description: Webhook endpoint for Telegram bot updates
+      operationId: telegramWebhook
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: Bot token for webhook authentication
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelegramUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
+
 components:
   securitySchemes:
-    bearerAuth: # arbitrary name for the security scheme
+    bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT    #
+      bearerFormat: JWT
+
   schemas:
-    ObjectId:
-      type: object
-      required:
-        - id
-      properties:
-        id:
-          type: string
-          format: uuid
-        message:
-          type: string
-          example: "Entity successfully created"
-    SuccessMessage:
-      type: object
-      required:
-        - message
-      properties:
-        message:
-          type: string
-    ErrorMessage:
-      type: object
-      required:
-        - message
-        - error_code
-      properties:
-        message:
-          type: string
-        error_code:
-          type: string
+    # Authentication Schemas
     UserCredentials:
       type: object
       required:
-        - phone
+        - email
         - password
       properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          example: "password123"
+
+    RegisterInput:
+      type: object
+      required:
+        - email
+        - password
+        - firstName
+        - lastName
+        - phone
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          example: "password123"
+        firstName:
+          type: string
+          example: "John"
+        lastName:
+          type: string
+          example: "Doe"
         phone:
           type: string
           example: "+998901234567"
-        password:
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
           type: string
-          example: "1234"
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
     AuthTokens:
       type: object
       required:
         - accessToken
         - refreshToken
+        - tokenType
+        - expiresIn
       properties:
         accessToken:
           type: string
+          description: JWT access token
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         refreshToken:
           type: string
+          description: UUID refresh token
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        tokenType:
+          type: string
+          enum: [Bearer]
+          example: "Bearer"
+        expiresIn:
+          type: integer
+          description: Access token expiration in seconds
+          example: 900
+
     AuthedUser:
       type: object
       required:
         - id
+        - email
+        - firstName
+        - lastName
         - phone
-        - firstname
-        - lastname
         - role
       properties:
         id:
           type: string
           format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        firstName:
+          type: string
+          example: "John"
+        lastName:
+          type: string
+          example: "Doe"
         phone:
           type: string
           example: "+998901234567"
-        firstname:
-          type: string
-          example: "Admin"
-        lastname:
-          type: string
-          example: "Admin"
         role:
-          $ref: "#/components/schemas/Role"
+          $ref: '#/components/schemas/Role'
         marketId:
           type: string
           format: uuid
+          example: "456e5678-f89b-12d3-a456-426614174001"
+
+    # User Management Schemas
+    CreateUserInput:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - email
+        - phone
+        - password
+        - roleId
+      properties:
+        firstName:
+          type: string
+          example: "John"
+        lastName:
+          type: string
+          example: "Doe"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        phone:
+          type: string
+          example: "+998901234567"
+        password:
+          type: string
+          format: password
+          example: "password123"
+        roleId:
+          type: string
+          format: uuid
+          example: "7aa5ba51-5f32-4123-b88c-aca7c8e7b033"
+        birthday:
+          type: string
+          format: date
+          example: "1990-01-01"
+        address:
+          type: string
+          example: "123 Main St, Tashkent"
+        marketId:
+          type: string
+          format: uuid
+          example: "456e5678-f89b-12d3-a456-426614174001"
+
+    UpdateUserInput:
+      type: object
+      properties:
+        firstName:
+          type: string
+          example: "John"
+        lastName:
+          type: string
+          example: "Doe"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        phone:
+          type: string
+          example: "+998901234567"
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, EXPIRED]
+          example: "ACTIVE"
+        roleId:
+          type: string
+          format: uuid
+          example: "7aa5ba51-5f32-4123-b88c-aca7c8e7b033"
+        birthday:
+          type: string
+          format: date
+          example: "1990-01-01"
+        address:
+          type: string
+          example: "123 Main St, Tashkent"
+        marketId:
+          type: string
+          format: uuid
+          example: "456e5678-f89b-12d3-a456-426614174001"
+
+    UpdatePasswordInput:
+      type: object
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          example: "oldpassword123"
+        newPassword:
+          type: string
+          format: password
+          example: "newpassword123"
+
+    UserFilters:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "John"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        phone:
+          type: string
+          example: "+998901234567"
+        roleId:
+          type: string
+          format: uuid
+          example: "7aa5ba51-5f32-4123-b88c-aca7c8e7b033"
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, EXPIRED]
+          example: "ACTIVE"
+        limit:
+          type: integer
+          example: 10
+        page:
+          type: integer
+          example: 1
+
+    # Role & Privilege Schemas
+    Privilege:
+      type: string
+      enum:
+        # User management
+        - create_user
+        - update_user
+        - update_any_user
+        - delete_user
+        - view_users
+        - create_super_user
+        # Role management
+        - create_role
+        - update_role
+        - delete_role
+        - view_roles
+        # Listings
+        - admin_listings_view_all
+        - admin_listings_approve
+        - admin_listings_reject
+        # Assets
+        - create_asset
+
     Role:
       type: object
       required:
@@ -793,133 +1179,294 @@ components:
         id:
           type: string
           format: uuid
+          example: "7aa5ba51-5f32-4123-b88c-aca7c8e7b033"
         name:
           type: string
           example: "Admin"
         privileges:
           type: array
           items:
-            $ref: "#/components/schemas/Privilege"
-    RoleInput:
+            $ref: '#/components/schemas/Privilege'
+        description:
+          type: string
+          example: "Administrator role with full access"
+        isSystem:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+
+    CreateRoleInput:
       type: object
       required:
         - name
       properties:
         name:
           type: string
-          example: "Admin"
+          example: "Manager"
         privileges:
           type: array
           items:
-            $ref: "#/components/schemas/Privilege"
-    RoleUpdateInput:
+            $ref: '#/components/schemas/Privilege'
+        description:
+          type: string
+          example: "Manager role with limited access"
+
+    UpdateRoleInput:
       type: object
       properties:
         name:
           type: string
-          example: "Admin"
+          example: "Manager"
         privileges:
           type: array
           items:
-            $ref: "#/components/schemas/Privilege"
-    Privilege:
+            $ref: '#/components/schemas/Privilege'
+        description:
+          type: string
+          example: "Manager role with limited access"
+
+    # Listing Schemas
+    ListingStatus:
       type: string
       enum:
-        - create_user
-        - update_user
-        - update_any_user
-        - view_users
-        - create_super_user
-    UserStatus:
-      type: string
-      enum:
-        - ACTIVE
-        - INACTIVE
-        - EXPIRED
-    UserInput:
+        - PENDING
+        - APPROVED
+        - REJECTED
+
+    Listing:
       type: object
       required:
-        - firstname
-        - lastname
-        - phone
-        - roleId
+        - id
+        - ownerId
+        - title
+        - description
+        - price
+        - city
+        - images
+        - status
+        - createdAt
+        - updatedAt
       properties:
-        firstname:
-          type: string
-          example: "John"
-        lastname:
-          type: string
-          example: "John"
-        phone:
-          type: string
-          example: "+998901234567"
-        roleId:
+        id:
           type: string
           format: uuid
-        birthday:
-          type: string
-          format: date
-        address:
-          type: string
-          example: "123 Main St, New York, NY 10001"
-        marketId:
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        ownerId:
           type: string
           format: uuid
-    UpdateUserInput:
-      type: object
-      properties:
-        firstname:
+          example: "456e5678-f89b-12d3-a456-426614174001"
+        title:
           type: string
-          example: John
-        lastname:
+          example: "Modern apartment in city center"
+        description:
           type: string
-          example: John
-        phone:
+          example: "Spacious 2-bedroom apartment with all amenities"
+        price:
+          type: number
+          format: double
+          example: 500.00
+        city:
           type: string
-          example: +998999673398
+          example: "Tashkent"
+        images:
+          type: array
+          items:
+            type: string
+          example:
+            - "https://cdn.example.com/listings/123/image1.jpg"
+            - "https://cdn.example.com/listings/123/image2.jpg"
         status:
-          $ref: '#/components/schemas/UserStatus'
-        roleId:
+          $ref: '#/components/schemas/ListingStatus'
+        rejectionReason:
+          type: string
+          example: "Invalid property details"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+        approvedAt:
+          type: string
+          format: date-time
+          example: "2023-01-02T00:00:00Z"
+        approvedBy:
           type: string
           format: uuid
-        birthday:
-          type: string
-          format: date
-        address:
-          type: string
-          example: 123 Main St, New York, NY 10001
-        marketId:
-          type: string
-          format: uuid
-    UserFilters:
+          example: "789e5678-f89b-12d3-a456-426614174002"
+
+    CreateListingInput:
       type: object
+      required:
+        - title
+        - description
+        - price
+        - city
+        - images
       properties:
-        name:
+        title:
           type: string
-          example: John
-        phone:
+          example: "Modern apartment in city center"
+        description:
           type: string
-          example: +998901234567
-        roleId:
+          example: "Spacious 2-bedroom apartment with all amenities"
+        price:
+          type: number
+          format: double
+          example: 500.00
+        city:
+          type: string
+          example: "Tashkent"
+        images:
+          type: array
+          items:
+            type: string
+          example:
+            - "https://cdn.example.com/uploads/abc123.jpg"
+            - "https://cdn.example.com/uploads/def456.jpg"
+
+    RejectListingInput:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          example: "Invalid property details or insufficient documentation"
+
+    GenerateContractInput:
+      type: object
+      required:
+        - listingId
+      properties:
+        listingId:
           type: string
           format: uuid
-          example: 7aa5ba51-5f32-4123-b88c-aca7c8e7b033
-        status:
-          $ref: "#/components/schemas/UserStatus"
-          example: ACTIVE
-        limit:
+          example: "123e4567-e89b-12d3-a456-426614174000"
+
+    GenerateContractResponse:
+      type: object
+      required:
+        - pdfUrl
+      properties:
+        pdfUrl:
+          type: string
+          format: url
+          example: "https://cdn.example.com/contracts/123.pdf"
+
+    # File Schemas
+    PresignResponse:
+      type: object
+      required:
+        - presignedUrl
+        - publicUrl
+      properties:
+        presignedUrl:
+          type: string
+          format: url
+          example: "https://s3.amazonaws.com/bucket/uploads/abc123?X-Amz-Signature=..."
+        publicUrl:
+          type: string
+          format: url
+          example: "https://cdn.example.com/uploads/abc123.jpg"
+
+    FileResponse:
+      type: object
+      required:
+        - url
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        url:
+          type: string
+          format: url
+          example: "https://cdn.example.com/uploads/abc123.jpg"
+
+    # Telegram Schemas
+    TelegramUpdate:
+      type: object
+      description: Telegram Bot API Update object
+      externalDocs:
+        url: https://core.telegram.org/bots/api#update
+
+    # Response Schemas
+    ObjectIdResponse:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        message:
+          type: string
+          example: "Entity successfully created"
+
+    SuccessResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: "Operation completed successfully"
+
+    ErrorResponse:
+      type: object
+      required:
+        - message
+        - error_code
+      properties:
+        message:
+          type: string
+          example: "Error occurred"
+        error_code:
+          type: string
+          example: "ERROR_CODE"
+        details:
+          type: object
+          additionalProperties: true
+
+    # Pagination Schemas
+    PaginatedUsersResponse:
+      type: object
+      required:
+        - data
+        - total
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
           type: integer
-          format: int32
-          example: 10
+          example: 100
         page:
           type: integer
-          format: int32
           example: 1
+        size:
+          type: integer
+          example: 20
+
     User:
       type: object
       required:
         - id
         - name
+        - email
         - phone
         - role
         - status
@@ -932,36 +1479,87 @@ components:
         name:
           type: string
           example: "John Doe"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
         phone:
           type: string
           example: "+998901234567"
         role:
-          $ref: "#/components/schemas/Role"
+          $ref: '#/components/schemas/Role'
         status:
-          $ref: "#/components/schemas/UserStatus"
+          type: string
+          enum: [ACTIVE, INACTIVE, EXPIRED]
+          example: "ACTIVE"
         createdAt:
           type: string
           format: date-time
-          example: "2023-10-01T12:00:00Z"
+          example: "2023-01-01T00:00:00Z"
         birthday:
           type: string
           format: date
           example: "1990-01-01"
         address:
           type: string
-          example: "123 Main St, New York, NY 10001, USA"
+          example: "123 Main St, Tashkent"
         marketId:
           type: string
           format: uuid
-    UserInfo:
+          example: "456e5678-f89b-12d3-a456-426614174001"
+
+    PaginatedListingsResponse:
       type: object
       required:
-        - id
-        - name
+        - data
+        - total
       properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-          example: "John Doe"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Listing'
+        total:
+          type: integer
+          example: 100
+        page:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 20
+
+    ListingsResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Listing'
+
+    PrivilegesResponse:
+      type: array
+      items:
+        type: object
+        required:
+          - groupName
+          - values
+        properties:
+          groupName:
+            type: string
+            example: "USER"
+          values:
+            type: array
+            items:
+              type: object
+              required:
+                - name
+                - description
+              properties:
+                name:
+                  type: string
+                  example: "create_user"
+                description:
+                  type: string
+                  example: "Create new user"

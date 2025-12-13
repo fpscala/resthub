@@ -21,14 +21,7 @@ export function useGenerateContract() {
     mutationFn: async (
       data: GenerateContractRequest
     ): Promise<GenerateContractResponse> => {
-      // TODO: Replace with actual API call
-      // return post<GenerateContractResponse>('/contracts/generate', data);
-
-      // Mock response
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return {
-        pdfUrl: `https://example.com/contracts/${data.listingId}.pdf`,
-      };
+      return post<GenerateContractResponse>('/contracts/generate', data);
     },
     onSuccess: (data) => {
       toast.success('Contract generated successfully');

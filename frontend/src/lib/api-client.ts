@@ -1,7 +1,27 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { ApiError } from '@/types';
+import { ApiError, RefreshTokenRequest, AuthTokens } from '@/types';
+import { getRefreshToken, setAuthTokens, removeAuthTokens } from './auth';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// Flag to prevent multiple refresh attempts
+let isRefreshing = false;
+let failedQueue: any[] = [];
+
+/**
+ * Process queued requests after token refresh
+ */
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+
+  failedQueue = [];
+};
 
 /**
  * Main API client instance
@@ -21,10 +41,23 @@ apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // TODO: In production, prefer httpOnly cookies over localStorage
     // For MVP, we use localStorage for simplicity
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const tokens = typeof window !== 'undefined' ? localStorage.getItem('auth_tokens') : null;
 
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
+    console.log('Request interceptor - tokens from localStorage:', tokens); // Debug log
+    console.log('Request interceptor - URL:', config.url); // Debug log
+
+    if (tokens && config.headers) {
+      try {
+        const parsedTokens = JSON.parse(tokens) as AuthTokens;
+        console.log('Adding auth header:', parsedTokens.accessToken); // Debug log
+        config.headers.Authorization = `${parsedTokens.tokenType} ${parsedTokens.accessToken}`;
+        console.log('Final Authorization header:', config.headers.Authorization); // Debug log
+      } catch (error) {
+        console.error('Failed to parse tokens:', error); // Debug log
+        // Invalid token format, continue without auth
+      }
+    } else {
+      console.log('No tokens found or headers undefined'); // Debug log
     }
 
     return config;
@@ -35,30 +68,97 @@ apiClient.interceptors.request.use(
 );
 
 /**
- * Response interceptor for error handling
+ * Response interceptor for error handling and token refresh
  */
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<any>) => {
-    const apiError: ApiError = {
-      message: error.response?.data?.message || error.message || 'An unexpected error occurred',
-      status: error.response?.status,
-      errors: error.response?.data?.errors,
-    };
+  async (error: AxiosError<any>) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    // Handle 401 Unauthorized - clear token and redirect
-    if (error.response?.status === 401) {
+    // If error is not 401 or request already retried, reject
+    if (error.response?.status !== 401 || originalRequest._retry) {
+      const apiError: ApiError = {
+        message: error.response?.data?.message || error.message || 'An unexpected error occurred',
+        status: error.response?.status,
+        error_code: error.response?.data?.error_code,
+        details: error.response?.data?.details,
+      };
+      return Promise.reject(apiError);
+    }
+
+    // If we're already refreshing, queue this request
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      }).then((token) => {
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+        }
+        return apiClient(originalRequest);
+      }).catch((err) => {
+        return Promise.reject(err);
+      });
+    }
+
+    // Start refresh process
+    isRefreshing = true;
+    const refreshToken = getRefreshToken();
+
+    if (!refreshToken) {
+      // No refresh token, clear auth and redirect
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token');
+        removeAuthTokens();
         localStorage.removeItem('user');
-        // Redirect to login if not already there
         if (!window.location.pathname.startsWith('/auth')) {
           window.location.href = '/auth/login';
         }
       }
+      processQueue(new Error('No refresh token'));
+      isRefreshing = false;
+      return Promise.reject(error);
     }
 
-    return Promise.reject(apiError);
+    try {
+      // Attempt to refresh token
+      const response = await axios.post<AuthTokens>(`${BASE_URL}/auth/refresh`, {
+        refreshToken
+      } as RefreshTokenRequest);
+
+      const { accessToken, refreshToken: newRefreshToken, tokenType, expiresIn } = response.data;
+
+      // Store new tokens
+      setAuthTokens({
+        accessToken,
+        refreshToken: newRefreshToken || refreshToken,
+        tokenType: tokenType || 'Bearer',
+        expiresIn: expiresIn || 900
+      });
+
+      // Update Authorization header
+      if (originalRequest.headers) {
+        originalRequest.headers.Authorization = `${tokenType || 'Bearer'} ${accessToken}`;
+      }
+
+      // Process queued requests
+      processQueue(null, accessToken);
+      isRefreshing = false;
+
+      // Retry original request
+      return apiClient(originalRequest);
+    } catch (refreshError) {
+      // Refresh failed, clear auth and redirect
+      if (typeof window !== 'undefined') {
+        removeAuthTokens();
+        localStorage.removeItem('user');
+        if (!window.location.pathname.startsWith('/auth')) {
+          window.location.href = '/auth/login';
+        }
+      }
+
+      processQueue(refreshError, null);
+      isRefreshing = false;
+      return Promise.reject(error);
+    }
   }
 );
 

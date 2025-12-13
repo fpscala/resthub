@@ -100,6 +100,24 @@ object ResponseMessages {
     Uz -> "Yaroqsiz yoki eskirgan token",
   )
 
+  val INVALID_REFRESH_TOKEN: Map[Language, String] = Map(
+    En -> "Invalid refresh token",
+    Ru -> "Неверный refresh token",
+    Uz -> "Yaroqsiz refresh token",
+  )
+
+  val REFRESH_TOKEN_EXPIRED: Map[Language, String] = Map(
+    En -> "Refresh token has expired",
+    Ru -> "Refresh token истек",
+    Uz -> "Refresh token muddati o'tgan",
+  )
+
+  val REFRESH_TOKEN_EMPTY: Map[Language, String] = Map(
+    En -> "Refresh token is required",
+    Ru -> "Refresh token обязателен",
+    Uz -> "Refresh token talab qilinadi",
+  )
+
   val BEARER_TOKEN_NOT_FOUND: Map[Language, String] = Map(
     En -> "Bearer token not found",
     Ru -> "Токен не найден",
@@ -243,6 +261,12 @@ object ResponseMessages {
     En -> "Contract generated successfully",
     Ru -> "Контракт успешно сгенерирован",
     Uz -> "Shartnoma yaratildi",
+  )
+
+  val TOKEN_REUSE_DETECTED_ALL_REVOKED: Map[Language, String] = Map(
+    En -> "Token reuse detected. All refresh tokens have been revoked",
+    Ru -> "Обнаружено повторное использование токена. Все refresh токены отозваны",
+    Uz -> "Token qayta ishlatilishi aniqlandi. Barcha refresh tokenlar bekor qilindi",
   )
 
 }

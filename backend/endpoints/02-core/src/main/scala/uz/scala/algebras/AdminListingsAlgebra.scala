@@ -9,7 +9,9 @@ import org.typelevel.log4cats.Logger
 import uz.scala.Language
 import uz.scala.domain.AuthedUser
 import uz.scala.domain.ListingId
-import uz.scala.domain.enums.{ListingStatus, Privilege}
+import uz.scala.domain.ResponseData
+import uz.scala.domain.enums.ListingStatus
+import uz.scala.domain.enums.Privilege
 import uz.scala.domain.listings._
 import uz.scala.effects.Calendar
 import uz.scala.exception.AError
@@ -24,7 +26,7 @@ trait AdminListingsAlgebra[F[_]] {
     )(implicit
       user: AuthedUser,
       lang: Language,
-    ): F[PaginatedResponse[ListingOutput]]
+    ): F[ResponseData[ListingOutput]]
 
   def approve(id: ListingId)(implicit user: AuthedUser, lang: Language): F[Unit]
 
@@ -53,25 +55,23 @@ object AdminListingsAlgebra {
       logger: Logger[F],
       xa: doobie.Transactor[F],
     ) extends AdminListingsAlgebra[F] {
-
     private def checkAdminPrivilege(
         privilege: Privilege
       )(implicit
         user: AuthedUser,
         lang: Language,
       ): F[Unit] =
-      if (user.role.privileges.contains(privilege)) {
+      if (user.role.privileges.contains(privilege))
         ().pure[F]
-      } else {
+      else
         AError.NotAllowed(INSUFFICIENT_PRIVILEGES_ADMIN(lang)).raiseError[F, Unit]
-      }
 
     override def getAllListings(
         filters: ListingFilters
       )(implicit
         user: AuthedUser,
         lang: Language,
-      ): F[PaginatedResponse[ListingOutput]] =
+      ): F[ResponseData[ListingOutput]] =
       for {
         _ <- logger.info(s"Admin getting all listings with filters: $filters")
 
@@ -86,28 +86,29 @@ object AdminListingsAlgebra {
         ownerIds = listings.map(_.ownerId).distinct
 
         // Fetch all owners
-        owners <- ownerIds.traverse { ownerId =>
-          usersRepository.findById(ownerId).transact(xa).map(owner => ownerId -> owner)
-        }.map(_.toMap)
+        owners <- ownerIds
+          .traverse { ownerId =>
+            usersRepository.findById(ownerId).transact(xa).map(owner => ownerId -> owner)
+          }
+          .map(_.toMap)
 
         // Convert to ListingOutput
         outputs = listings.flatMap { listing =>
           owners.get(listing.ownerId).flatten.map { owner =>
-            val ownerDomain = owner.into[uz.scala.domain.users.User]
+            val ownerDomain = owner
+              .into[uz.scala.domain.users.User]
               .withFieldComputed(_.role, _ => user.role) // TODO: Load actual role
               .transform
 
             listing
               .into[ListingOutput]
               .withFieldConst(_.owner, ownerDomain)
-              .withFieldComputed(_.price, _.price.amount) // Convert Money to BigDecimal
+              .withFieldComputed(_.price, _.price)
               .transform
           }
         }
 
-        page = filters.page.getOrElse(1)
-        size = filters.size.getOrElse(20)
-      } yield PaginatedResponse(outputs, total, page, size)
+      } yield ResponseData(outputs, total)
 
     override def approve(
         id: ListingId
@@ -128,11 +129,11 @@ object AdminListingsAlgebra {
         )(_.pure[F])
 
         // Check listing is PENDING
-        _ <- if (listing.status != ListingStatus.Pending) {
-          AError.BadRequest(LISTING_NOT_PENDING(lang)).raiseError[F, Unit]
-        } else {
-          ().pure[F]
-        }
+        _ <-
+          if (listing.status != ListingStatus.Pending)
+            AError.BadRequest(LISTING_NOT_PENDING(lang)).raiseError[F, Unit]
+          else
+            ().pure[F]
 
         // Update status to APPROVED
         _ <- listingsRepository
@@ -162,11 +163,11 @@ object AdminListingsAlgebra {
         )(_.pure[F])
 
         // Check listing is PENDING
-        _ <- if (listing.status != ListingStatus.Pending) {
-          AError.BadRequest(LISTING_NOT_PENDING(lang)).raiseError[F, Unit]
-        } else {
-          ().pure[F]
-        }
+        _ <-
+          if (listing.status != ListingStatus.Pending)
+            AError.BadRequest(LISTING_NOT_PENDING(lang)).raiseError[F, Unit]
+          else
+            ().pure[F]
 
         // Update status to REJECTED with reason
         _ <- listingsRepository

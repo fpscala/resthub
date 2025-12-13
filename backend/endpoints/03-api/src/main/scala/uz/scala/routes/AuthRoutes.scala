@@ -9,7 +9,6 @@ import org.http4s.circe.JsonDecoder
 import org.typelevel.log4cats.Logger
 
 import uz.scala.Language
-import uz.scala.SuccessResult
 import uz.scala.algebras.AuthAlgebra
 import uz.scala.auth.impl.Auth
 import uz.scala.domain.AuthedUser
@@ -18,8 +17,6 @@ import uz.scala.domain.auth.RegisterInput
 import uz.scala.http4s.syntax.all.deriveEntityEncoder
 import uz.scala.http4s.syntax.all.http4SyntaxReqOps
 import uz.scala.http4s.utils.Routes
-import uz.scala.shared.ResponseMessages._
-import uz.scala.syntax.refined._
 
 final case class AuthRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
     auth: Auth[F, AuthedUser],
@@ -57,7 +54,7 @@ final case class AuthRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
     case GET -> Root / "me" as user =>
       Ok(user)
 
-    case ar @ POST -> Root / "logout" as user =>
+    case ar @ POST -> Root / "logout" as _ =>
       ar.req.decodeR[RefreshTokenRequest] { refreshReq =>
         auth.logout(refreshReq.refreshToken) *> NoContent()
       }

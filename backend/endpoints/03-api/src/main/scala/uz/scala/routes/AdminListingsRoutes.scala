@@ -35,8 +35,8 @@ final case class AdminListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
   override val `private`: AuthedRoutes[AuthedUser, F] = AuthedRoutes.of {
     // GET /admin/listings?status=PENDING&page=1&size=20
     case ar @ GET -> Root :? StatusQueryParam(statusStr) +&
-        PageQueryParam(page) +&
-        SizeQueryParam(size) as user =>
+         OffsetQueryParam(page) +&
+         LimitQueryParam(size) as user =>
       implicit val authedUser: AuthedUser = user
       implicit val language: Language = ar.req.lang
 
@@ -47,14 +47,18 @@ final case class AdminListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
         case _ => None
       }
 
-      val filters = uz.scala.domain.listings.ListingFilters(
-        city = None,
-        minPrice = None,
-        maxPrice = None,
-        status = status,
-        page = page,
-        size = size,
-      )
+      val filters = uz
+        .scala
+        .domain
+        .listings
+        .ListingFilters(
+          city = None,
+          minPrice = None,
+          maxPrice = None,
+          status = status,
+          page = page,
+          size = size,
+        )
 
       adminAlgebra.getAllListings(filters).flatMap(Ok(_))
 
@@ -69,7 +73,9 @@ final case class AdminListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
       implicit val authedUser: AuthedUser = user
       implicit val language: Language = ar.req.lang
       ar.req.decodeR[RejectListingInput] { input =>
-        adminAlgebra.reject(ListingId(id), input.reason.value) *> Ok(SuccessResult(LISTING_REJECTED(language)))
+        adminAlgebra.reject(ListingId(id), input.reason.value) *> Ok(
+          SuccessResult(LISTING_REJECTED(language))
+        )
       }
   }
 }

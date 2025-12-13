@@ -39,7 +39,8 @@ final case class S3Routes[F[_]: Logger: JsonDecoder: MonadThrow](
             presignedUrl <- s3Client.generatePresignedUrl(key, publicRead = true)
             publicUrl <- s3Client.generatePublicUrl(key)
             response = PresignResponse(presignedUrl.toString, publicUrl)
-          } yield Ok(response)
+            res <- Ok(response)
+          } yield res
 
         case None =>
           BadRequest("Missing 'key' query parameter")

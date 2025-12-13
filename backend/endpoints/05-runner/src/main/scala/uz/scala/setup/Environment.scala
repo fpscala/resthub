@@ -59,6 +59,7 @@ case class Environment[F[_]: Async: Logger: Random](
       appMiddleware = appMiddleware,
       config = config.http,
       algebras = algebras,
+      s3Client = s3Client,
     )
 
   lazy val toJobs: JobsEnvironment[F] = JobsEnvironment(

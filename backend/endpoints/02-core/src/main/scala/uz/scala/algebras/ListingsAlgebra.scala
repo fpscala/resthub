@@ -9,6 +9,7 @@ import org.typelevel.log4cats.Logger
 import uz.scala.Language
 import uz.scala.domain.AuthedUser
 import uz.scala.domain.ListingId
+import uz.scala.domain.ResponseData
 import uz.scala.domain.enums.ListingStatus
 import uz.scala.domain.listings._
 import uz.scala.effects.Calendar
@@ -18,19 +19,13 @@ import uz.scala.repos.ListingsRepository
 import uz.scala.repos.UsersRepository
 import uz.scala.repos.dto
 import uz.scala.shared.ResponseMessages._
+import uz.scala.syntax.refined._
 import uz.scala.utils.ID
-
-case class PaginatedResponse[T](
-    items: List[T],
-    total: Long,
-    page: Int,
-    size: Int,
-  )
 
 trait ListingsAlgebra[F[_]] {
   def create(input: CreateListingInput)(implicit user: AuthedUser, lang: Language): F[ListingId]
   def findById(id: ListingId)(implicit lang: Language): F[ListingOutput]
-  def search(filters: ListingFilters): F[PaginatedResponse[ListingOutput]]
+  def search(filters: ListingFilters): F[ResponseData[ListingOutput]]
   def myListings(implicit user: AuthedUser): F[List[ListingOutput]]
   def delete(id: ListingId)(implicit user: AuthedUser, lang: Language): F[Unit]
 }
@@ -51,7 +46,6 @@ object ListingsAlgebra {
       logger: Logger[F],
       xa: doobie.Transactor[F],
     ) extends ListingsAlgebra[F] {
-
     override def create(
         input: CreateListingInput
       )(implicit
@@ -62,18 +56,18 @@ object ListingsAlgebra {
         _ <- logger.info(s"Creating listing: ${input.title} by user ${user.id}")
 
         // Validate images list not empty
-        _ <- if (input.images.isEmpty) {
-          AError.BadRequest(INVALID_IMAGES(lang)).raiseError[F, Unit]
-        } else {
-          ().pure[F]
-        }
+        _ <-
+          if (input.images.isEmpty)
+            AError.BadRequest(INVALID_IMAGES(lang)).raiseError[F, Unit]
+          else
+            ().pure[F]
 
         // Validate price is positive
-        _ <- if (input.price <= 0) {
-          AError.BadRequest(INVALID_PRICE(lang)).raiseError[F, Unit]
-        } else {
-          ().pure[F]
-        }
+        _ <-
+          if (input.price.amount <= 0)
+            AError.BadRequest(INVALID_PRICE(lang)).raiseError[F, Unit]
+          else
+            ().pure[F]
 
         // Generate listing ID
         listingId <- ID.make[F, ListingId]
@@ -104,6 +98,7 @@ object ListingsAlgebra {
       for {
         _ <- logger.info(s"Finding listing by id: $id")
 
+        now <- Calendar[F].currentZonedDateTime
         listingOpt <- listingsRepository.findById(id).transact(xa)
         listing <- listingOpt.fold(
           AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
@@ -115,15 +110,28 @@ object ListingsAlgebra {
           AError.Internal("Owner not found").raiseError[F, dto.User]
         )(_.pure[F])
 
-        // Convert to domain User
-        ownerRole <- owner.role.pure[F] // Assuming role is loaded
-        ownerDomain = owner.toDomain(ownerRole)
+        // Convert to domain User - TODO: Load role from database based on owner.roleId
+        // For now, we'll create a dummy role
+        ownerDomain = owner.toDomain(
+          uz.scala
+            .domain
+            .users
+            .Role(
+              id = owner.roleId,
+              name = "USER", // TODO: Load from database
+              privileges = List.empty, // TODO: Load from database
+              description = None,
+              isSystem = false,
+              createdAt = owner.createdAt,
+              updatedAt = None,
+            )
+        )
 
         // Convert to ListingOutput
         output = listing.toDomain(ownerDomain)
       } yield output
 
-    override def search(filters: ListingFilters): F[PaginatedResponse[ListingOutput]] =
+    override def search(filters: ListingFilters): F[ResponseData[ListingOutput]] =
       for {
         _ <- logger.info(s"Searching listings with filters: $filters")
 
@@ -138,27 +146,31 @@ object ListingsAlgebra {
         ownerIds = listings.map(_.ownerId).distinct
 
         // Fetch all owners in one query
-        owners <- ownerIds.traverse { ownerId =>
-          usersRepository.findById(ownerId).transact(xa).map(owner => ownerId -> owner)
-        }.map(_.toMap)
+        owners <- ownerIds
+          .traverse { ownerId =>
+            usersRepository.findById(ownerId).transact(xa).map(owner => ownerId -> owner)
+          }
+          .map(_.toMap)
 
         // Convert to ListingOutput
         outputs = listings.map { listing =>
           val ownerOpt = owners.get(listing.ownerId).flatten
-          val ownerDomain = ownerOpt.map { owner =>
-            owner.into[uz.scala.domain.users.User]
-              .withFieldComputed(_.role, _ => ???) // TODO: Load role
-              .transform
-          }.getOrElse(???) // Should not happen
+          val ownerDomain = ownerOpt
+            .map { owner =>
+              owner
+                .into[uz.scala.domain.users.User]
+                .withFieldComputed(_.role, _ => ???) // TODO: Load role
+                .transform
+            }
+            .getOrElse(???) // Should not happen
 
-          listing.into[ListingOutput]
+          listing
+            .into[ListingOutput]
             .withFieldConst(_.owner, ownerDomain)
             .transform
         }
 
-        page = publicFilters.page.getOrElse(1)
-        size = publicFilters.size.getOrElse(20)
-      } yield PaginatedResponse(outputs, total, page, size)
+      } yield ResponseData(outputs, total)
 
     override def myListings(implicit user: AuthedUser): F[List[ListingOutput]] =
       for {
@@ -199,11 +211,11 @@ object ListingsAlgebra {
         )(_.pure[F])
 
         // Check user is owner
-        _ <- if (listing.ownerId != user.id) {
-          AError.NotAllowed(NOT_LISTING_OWNER(lang)).raiseError[F, Unit]
-        } else {
-          ().pure[F]
-        }
+        _ <-
+          if (listing.ownerId != user.id)
+            AError.NotAllowed(NOT_LISTING_OWNER(lang)).raiseError[F, Unit]
+          else
+            ().pure[F]
 
         // Delete listing
         _ <- listingsRepository.delete(id).transact(xa)

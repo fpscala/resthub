@@ -344,7 +344,31 @@ listing.into[ListingOutput]
   .transform
 ```
 
-### 15. Doobie Import Conflicts
+### 15. Money Type Usage
+**Qoida:** Hamma joyda price ishlatilganda `BigDecimal` emas, `squants.market.Money` type ishlatish kerak.
+
+**To'g'ri amaliyot:**
+```scala
+import squants.market.Money
+
+case class CreateListingInput(
+  title: NonEmptyString,
+  price: Money,  // ✅ Money type
+  // ...
+)
+```
+
+**Noto'g'ri misollar:**
+```scala
+// ❌ BUNDAY QILMASLIK KERAK
+case class CreateListingInput(
+  title: NonEmptyString,
+  price: BigDecimal,  // ❌ BigDecimal emas
+  // ...
+)
+```
+
+### 16. Doobie Import Conflicts
 **Qoida:** `uz.scala.doobie.syntax.all._` va `doobie.postgres.implicits._` lar o'rtasida conflict bor. O'z librarylaringiz prioritetga ega, shuning uchun `doobie.postgres.implicits._` ni ishlatmaslik kerak.
 
 **To'g'ri amaliyot:**

@@ -56,7 +56,7 @@ object ContractsAlgebra {
         // Check listing exists and is APPROVED
         listingOpt <- listingsRepository.findById(listingId).transact(xa)
         listing <- listingOpt.fold(
-          AError.NotFound(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
+          AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
         )(_.pure[F])
 
         _ <- if (listing.status != ListingStatus.Approved) {

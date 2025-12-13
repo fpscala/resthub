@@ -3,18 +3,19 @@ package uz.scala.auth.impl
 import java.security.MessageDigest
 import java.time.ZonedDateTime
 import java.util.UUID
-
 import cats.data.EitherT
 import cats.data.OptionT
 import cats.effect.Sync
 import cats.implicits._
+import cats.~>
 import dev.profunktor.auth.jwt.JwtAuth
 import dev.profunktor.auth.jwt.JwtSymmetricAuth
+import doobie.ConnectionIO
 import doobie.syntax.connectionio._
+import io.circe.syntax.EncoderOps
 import org.typelevel.log4cats.Logger
 import pdi.jwt.JwtAlgorithm
 import tsec.passwordhashers.jca.SCrypt
-
 import uz.scala.Language
 import uz.scala.algebras.UsersAlgebra
 import uz.scala.auth.AuthConfig
@@ -23,12 +24,16 @@ import uz.scala.auth.utils.Tokens
 import uz.scala.domain.AuthedUser
 import uz.scala.domain.RefreshTokenId
 import uz.scala.domain.auth._
-import uz.scala.exception.AError.AuthError
+import uz.scala.effects.Calendar
+import uz.scala.effects.GenUUID
+import uz.scala.exception.AError
 import uz.scala.exception.AError.AuthError._
 import uz.scala.repos.RefreshTokensRepository
 import uz.scala.repos.RolesRepository
 import uz.scala.shared.ResponseMessages._
+import uz.scala.syntax.option._
 import uz.scala.syntax.refined.commonSyntaxAutoUnwrapV
+import uz.scala.utils.ID
 
 trait Auth[F[_], A] {
   def loginByPassword(
@@ -58,6 +63,7 @@ object Auth {
     )(implicit
       logger: Logger[F],
       xa: doobie.Transactor[F],
+      lifter: F ~> ConnectionIO,
     ): Auth[F, AuthedUser] =
     new Auth[F, AuthedUser] {
       val tokens: Tokens[F] =
@@ -99,43 +105,40 @@ object Auth {
         val now = ZonedDateTime.now()
         val tokenHash = hashToken(refreshTokenStr)
 
-        (for {
+        for {
           // Find refresh token in DB
-          tokenOpt <- EitherT.liftF(refreshTokensRepository.findByHash(tokenHash).transact(xa))
+          oldToken <- refreshTokensRepository
+            .findByHash(tokenHash)
+            .transact(xa)
+            .getOrRaise(InvalidToken(INVALID_REFRESH_TOKEN(language)))
 
-          oldToken <- EitherT.fromOption[F](
-            tokenOpt,
-            InvalidToken(INVALID_REFRESH_TOKEN(language)),
-          )
-
-          // Check if token is in grace period (reuse detection)
           result <-
             if (oldToken.revoked && oldToken.reuseWindowExpiresAt.exists(_.isAfter(now)))
               // GRACE PERIOD ACTIVE - Return the new tokens (idempotent)
-              logger.info(
-                s"Refresh token reuse detected within grace period for user ${oldToken.userId}"
-              ) *>
-                EitherT.liftF(handleGracePeriodReuse(oldToken, language))
-            else if (oldToken.revoked)
-              // Grace period expired - SECURITY BREACH
-              logger.warn(
-                s"Refresh token reuse detected AFTER grace period for user ${oldToken.userId} - revoking all tokens"
-              ) *>
-                EitherT.liftF(
-                  refreshTokensRepository
-                    .revokeAllForUser(oldToken.userId, "reuse_detected")
-                    .transact(xa)
-                ) *>
-                EitherT.leftT[F, AuthTokens](
-                  InvalidToken(TOKEN_REUSE_DETECTED_ALL_REVOKED(language))
+              for {
+                _ <- logger.info(
+                  s"Refresh token reuse detected within grace period for user ${oldToken.userId}"
                 )
+                tokens <- handleGracePeriodReuse(oldToken)
+              } yield tokens
+            else if (oldToken.revoked)
+              for {
+                _ <- logger.warn(
+                  s"Refresh token reuse detected AFTER grace period for user ${oldToken.userId} - revoking all tokens"
+                )
+                _ <- refreshTokensRepository
+                  .revokeAllForUser(oldToken.userId, "reuse_detected")
+                  .transact(xa)
+                error <- InvalidToken(TOKEN_REUSE_DETECTED_ALL_REVOKED(language))
+                  .raiseError[F, AuthTokens]
+              } yield error
             else if (oldToken.expiresAt.isBefore(now))
               // Token expired
-              EitherT.leftT[F, AuthTokens](InvalidToken(REFRESH_TOKEN_EXPIRED(language)))
+              InvalidToken(REFRESH_TOKEN_EXPIRED(language)).raiseError[F, AuthTokens]
             else
               // NORMAL CASE: Generate new tokens with rotation
-              EitherT.liftF(rotateRefreshToken(oldToken, deviceInfo, language))
-        } yield result).rethrowT
+              rotateRefreshToken(oldToken, deviceInfo)
+        } yield result
       }
 
       override def logout(refreshTokenStr: String): F[Unit] = {
@@ -153,8 +156,9 @@ object Auth {
 
       // GRACE PERIOD REUSE HANDLER
       private def handleGracePeriodReuse(
-          oldToken: uz.scala.repos.dto.RefreshToken,
-          language: Language,
+          oldToken: uz.scala.repos.dto.RefreshToken
+        )(implicit
+          language: Language
         ): F[AuthTokens] =
         oldToken.replacedByTokenId match {
           case Some(newTokenId) =>
@@ -170,14 +174,14 @@ object Auth {
                       new Exception("User not found")
                     )
                     role <- rolesRepository.getRole(user.roleId)
+                    accessToken <- lifter(
+                      tokens
+                        .createAccessToken(user.toAuth(role))
+                        .map(_.value)
+                    )
                   } yield AuthTokens(
-                    accessToken = tokens
-                      .createAccessToken(user.toAuth(role))
-                      .map(_.value)
-                      .toIO
-                      .unsafeRunSync(),
+                    accessToken = accessToken,
                     refreshToken = newToken.id.value.toString, // Return the NEW refresh token
-                    tokenType = "Bearer",
                     expiresIn = config.accessTokenExpiration.toSeconds,
                   )
                 case None =>
@@ -185,41 +189,41 @@ object Auth {
               }
               .transact(xa)
           case None =>
-            InvalidToken(TOKEN_REVOKED(language)).raiseError[F, AuthTokens]
+            InvalidToken(TOKEN_REUSE_DETECTED_ALL_REVOKED(language)).raiseError[F, AuthTokens]
         }
 
       // TOKEN ROTATION WITH GRACE PERIOD
       private def rotateRefreshToken(
           oldToken: uz.scala.repos.dto.RefreshToken,
           deviceInfo: Option[DeviceInfo],
-          language: Language,
-        ): F[AuthTokens] = {
-        val now = ZonedDateTime.now()
-        val gracePeriodSeconds = 30 // 30 seconds grace period
-        val newRefreshTokenStr = UUID.randomUUID().toString
-        val newRefreshTokenHash = hashToken(newRefreshTokenStr)
-        val newRefreshTokenId = RefreshTokenId(UUID.randomUUID())
-
-        val newRefreshToken = uz
-          .scala
-          .repos
-          .dto
-          .RefreshToken(
-            id = newRefreshTokenId,
-            userId = oldToken.userId,
-            tokenHash = newRefreshTokenHash,
-            deviceInfo =
-              deviceInfo.map(d => io.circe.parser.parse(d.asJson.noSpaces).toOption).flatten,
-            ipAddress = None,
-            userAgent = None,
-            expiresAt = now.plusDays(7),
-            createdAt = now,
-          )
-
+        )(implicit
+          language: Language
+        ): F[AuthTokens] =
         (for {
           // Get user and role
-          userOpt <- usersRepository.findById(oldToken.userId)
-          user <- userOpt.liftTo[doobie.ConnectionIO](new Exception("User not found"))
+          now <- Calendar[ConnectionIO].currentZonedDateTime
+          gracePeriodSeconds = 30L // 30 seconds grace period
+          newRefreshTokenId <- ID.make[ConnectionIO, RefreshTokenId]
+          newRefreshTokenStr = newRefreshTokenId.value.toString
+          newRefreshTokenHash = hashToken(newRefreshTokenId.value.toString)
+
+          newRefreshToken = uz
+            .scala
+            .repos
+            .dto
+            .RefreshToken(
+              id = newRefreshTokenId,
+              userId = oldToken.userId,
+              tokenHash = newRefreshTokenHash,
+              deviceInfo = deviceInfo.map(_.asJson),
+              ipAddress = None,
+              userAgent = None,
+              expiresAt = now.plusDays(7),
+              createdAt = now,
+            )
+          user <- usersRepository
+            .findById(oldToken.userId)
+            .getOrRaise(AError.BadRequest(USER_NOT_FOUND(language)))
           role <- rolesRepository.getRole(user.roleId)
 
           // Save new refresh token
@@ -235,18 +239,16 @@ object Auth {
               reuseWindowExpiresAt = Some(now.plusSeconds(gracePeriodSeconds)),
             )
           )
-
+          accessToken <- lifter(
+            tokens
+              .createAccessToken(user.toAuth(role))
+              .map(_.value)
+          )
         } yield AuthTokens(
-          accessToken = tokens
-            .createAccessToken(user.toAuth(role))
-            .map(_.value)
-            .toIO
-            .unsafeRunSync(),
+          accessToken = accessToken,
           refreshToken = newRefreshTokenStr,
-          tokenType = "Bearer",
           expiresIn = config.accessTokenExpiration.toSeconds,
         )).transact(xa)
-      }
 
       // CREATE TOKEN PAIR (Login)
       private def createTokenPair(
@@ -265,8 +267,7 @@ object Auth {
             id = RefreshTokenId(UUID.randomUUID()),
             userId = user.id,
             tokenHash = newRefreshTokenHash,
-            deviceInfo =
-              deviceInfo.map(d => io.circe.parser.parse(d.asJson.noSpaces).toOption).flatten,
+            deviceInfo = deviceInfo.map(_.asJson),
             ipAddress = None,
             userAgent = None,
             expiresAt = now.plusDays(7),
@@ -276,11 +277,10 @@ object Auth {
         (for {
           // Save refresh token
           _ <- refreshTokensRepository.create(newRefreshToken)
-
+          accessToken <- lifter(tokens.createAccessToken(user).map(_.value))
         } yield AuthTokens(
-          accessToken = tokens.createAccessToken(user).map(_.value).toIO.unsafeRunSync(),
+          accessToken = accessToken,
           refreshToken = newRefreshTokenStr,
-          tokenType = "Bearer",
           expiresIn = config.accessTokenExpiration.toSeconds,
         )).transact(xa)
       }

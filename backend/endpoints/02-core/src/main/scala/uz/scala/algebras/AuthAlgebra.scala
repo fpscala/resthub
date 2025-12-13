@@ -30,16 +30,14 @@ trait AuthAlgebra[F[_]] {
 object AuthAlgebra {
   def make[F[_]: MonadCancelThrow: Calendar: GenUUID: Logger](
       usersRepository: UsersRepository[doobie.ConnectionIO],
-      emailService: EmailService[F],
     )(implicit
       ev: PasswordHasher[F, SCrypt],
       xa: doobie.Transactor[F],
     ): AuthAlgebra[F] =
-    new Impl[F](usersRepository, emailService)
+    new Impl[F](usersRepository)
 
   private class Impl[F[_]: MonadCancelThrow: GenUUID: Calendar](
       usersRepository: UsersRepository[doobie.ConnectionIO],
-      emailService: EmailService[F],
     )(implicit
       logger: Logger[F],
       ev: PasswordHasher[F, SCrypt],

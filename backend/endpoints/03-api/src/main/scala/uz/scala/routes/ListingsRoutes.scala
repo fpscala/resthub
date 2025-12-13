@@ -6,6 +6,7 @@ import cats.MonadThrow
 import cats.implicits._
 import org.http4s.AuthedRoutes
 import org.http4s.HttpRoutes
+import org.http4s.QueryParamDecoder
 import org.http4s.circe.JsonDecoder
 import org.http4s.dsl.impl.OptionalQueryParamDecoderMatcher
 import org.typelevel.log4cats.Logger
@@ -21,13 +22,7 @@ import uz.scala.http4s.syntax.all.deriveEntityEncoder
 import uz.scala.http4s.syntax.all.http4SyntaxReqOps
 import uz.scala.http4s.utils.Routes
 import uz.scala.shared.ResponseMessages._
-
-// Query parameter matchers
-object CityQueryParam extends OptionalQueryParamDecoderMatcher[String]("city")
-object MinPriceQueryParam extends OptionalQueryParamDecoderMatcher[BigDecimal]("minPrice")
-object MaxPriceQueryParam extends OptionalQueryParamDecoderMatcher[BigDecimal]("maxPrice")
-object PageQueryParam extends OptionalQueryParamDecoderMatcher[Int]("page")
-object SizeQueryParam extends OptionalQueryParamDecoderMatcher[Int]("size")
+import uz.scala.syntax.refined._
 
 final case class ListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
     listingsAlgebra: ListingsAlgebra[F]
@@ -38,19 +33,22 @@ final case class ListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
     HttpRoutes.of[F] {
       // GET /listings?city=...&minPrice=...&maxPrice=...&page=1&size=20
       case GET -> Root :? CityQueryParam(city) +&
-          MinPriceQueryParam(minPrice) +&
-          MaxPriceQueryParam(maxPrice) +&
-          PageQueryParam(page) +&
-          SizeQueryParam(size) =>
-        val cityRefined = city.flatMap(c => eu.timepit.refined.refineV[eu.timepit.refined.string.NonEmpty](c).toOption)
-        val filters = uz.scala.domain.listings.ListingFilters(
-          city = cityRefined,
-          minPrice = minPrice,
-          maxPrice = maxPrice,
-          status = Some(ListingStatus.Approved), // Public search only shows APPROVED
-          page = page,
-          size = size,
-        )
+           MinPriceQueryParam(minPrice) +&
+           MaxPriceQueryParam(maxPrice) +&
+           OffsetQueryParam(page) +&
+           LimitQueryParam(size) =>
+        val filters = uz
+          .scala
+          .domain
+          .listings
+          .ListingFilters(
+            city = city,
+            minPrice = minPrice,
+            maxPrice = maxPrice,
+            status = Some(ListingStatus.Approved), // Public search only shows APPROVED
+            page = page,
+            size = size,
+          )
         listingsAlgebra.search(filters).flatMap(Ok(_))
 
       // GET /listings/:id

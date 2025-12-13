@@ -12,7 +12,6 @@ import cats.implicits.toTraverseOps
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-import uz.scala.jobs.listeners.DraftApprovedListener
 import uz.scala.setup.Environment
 
 object Main extends IOApp {
@@ -27,10 +26,8 @@ object Main extends IOApp {
 
       // Start Kafka listeners
       implicit0(jobsEnv: JobsEnvironment[F]) = env.toJobs
-      draftApprovedListener = DraftApprovedListener.make[F](env.topics.draftApproved)
-      listenerStream = draftApprovedListener.start().compile.drain.as(ExitCode.Success)
 
-    } yield List(httpModule, jobsModule, listenerStream)
+    } yield List(httpModule, jobsModule)
 
   override def run(
       args: List[String]

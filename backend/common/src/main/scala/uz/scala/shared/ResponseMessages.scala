@@ -269,4 +269,10 @@ object ResponseMessages {
     Uz -> "Token qayta ishlatilishi aniqlandi. Barcha refresh tokenlar bekor qilindi",
   )
 
+  val TOKEN_CHAIN_BROKEN: Map[Language, String] = Map(
+    En -> "Token chain is broken. Please login again",
+    Ru -> "Цепочка токенов нарушена. Пожалуйста, войдите снова",
+    Uz -> "Token zanjiri buzilgan. Iltimos, qayta kiring",
+  )
+
 }

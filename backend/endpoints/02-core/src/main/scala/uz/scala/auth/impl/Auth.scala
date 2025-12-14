@@ -2,20 +2,16 @@ package uz.scala.auth.impl
 
 import java.security.MessageDigest
 import java.time.ZonedDateTime
-import java.util.UUID
-import cats.data.EitherT
-import cats.data.OptionT
+
 import cats.effect.Sync
 import cats.implicits._
 import cats.~>
-import dev.profunktor.auth.jwt.JwtAuth
-import dev.profunktor.auth.jwt.JwtSymmetricAuth
 import doobie.ConnectionIO
 import doobie.syntax.connectionio._
 import io.circe.syntax.EncoderOps
 import org.typelevel.log4cats.Logger
-import pdi.jwt.JwtAlgorithm
 import tsec.passwordhashers.jca.SCrypt
+
 import uz.scala.Language
 import uz.scala.algebras.UsersAlgebra
 import uz.scala.auth.AuthConfig
@@ -25,7 +21,6 @@ import uz.scala.domain.AuthedUser
 import uz.scala.domain.RefreshTokenId
 import uz.scala.domain.auth._
 import uz.scala.effects.Calendar
-import uz.scala.effects.GenUUID
 import uz.scala.exception.AError
 import uz.scala.exception.AError.AuthError._
 import uz.scala.repos.RefreshTokensRepository
@@ -68,8 +63,6 @@ object Auth {
     new Auth[F, AuthedUser] {
       val tokens: Tokens[F] =
         Tokens.make[F](JwtExpire[F], config)
-      val jwtAuth: JwtSymmetricAuth =
-        JwtAuth.hmac(config.tokenKey.toCharArray, JwtAlgorithm.HS256)
 
       // SHA-256 hash for refresh token
       private def hashToken(token: String): String = {
@@ -169,10 +162,9 @@ object Auth {
                 case Some(newToken) =>
                   // Get user and role to regenerate access token
                   for {
-                    userOpt <- usersRepository.findById(oldToken.userId)
-                    user <- userOpt.liftTo[doobie.ConnectionIO](
-                      new Exception("User not found")
-                    )
+                    user <- usersRepository
+                      .findById(oldToken.userId)
+                      .getOrRaise(AError.BadRequest(USER_NOT_FOUND(language)))
                     role <- rolesRepository.getRole(user.roleId)
                     accessToken <- lifter(
                       tokens
@@ -185,7 +177,8 @@ object Auth {
                     expiresIn = config.accessTokenExpiration.toSeconds,
                   )
                 case None =>
-                  new Exception("Token chain broken").raiseError[doobie.ConnectionIO, AuthTokens]
+                  InvalidToken(TOKEN_CHAIN_BROKEN(language))
+                    .raiseError[doobie.ConnectionIO, AuthTokens]
               }
               .transact(xa)
           case None =>
@@ -254,17 +247,18 @@ object Auth {
       private def createTokenPair(
           user: AuthedUser,
           deviceInfo: Option[DeviceInfo],
-        ): F[AuthTokens] = {
-        val now = ZonedDateTime.now()
-        val newRefreshTokenStr = UUID.randomUUID().toString
-        val newRefreshTokenHash = hashToken(newRefreshTokenStr)
+        ): F[AuthTokens] = (for {
+        now <- Calendar[ConnectionIO].currentZonedDateTime
+        newRefreshTokenId <- ID.make[ConnectionIO, RefreshTokenId]
+        newRefreshTokenStr = newRefreshTokenId.value.toString
+        newRefreshTokenHash = hashToken(newRefreshTokenId.value.toString)
 
-        val newRefreshToken = uz
+        newRefreshToken = uz
           .scala
           .repos
           .dto
           .RefreshToken(
-            id = RefreshTokenId(UUID.randomUUID()),
+            id = newRefreshTokenId,
             userId = user.id,
             tokenHash = newRefreshTokenHash,
             deviceInfo = deviceInfo.map(_.asJson),
@@ -274,15 +268,12 @@ object Auth {
             createdAt = now,
           )
 
-        (for {
-          // Save refresh token
-          _ <- refreshTokensRepository.create(newRefreshToken)
-          accessToken <- lifter(tokens.createAccessToken(user).map(_.value))
-        } yield AuthTokens(
-          accessToken = accessToken,
-          refreshToken = newRefreshTokenStr,
-          expiresIn = config.accessTokenExpiration.toSeconds,
-        )).transact(xa)
-      }
+        _ <- refreshTokensRepository.create(newRefreshToken)
+        accessToken <- lifter(tokens.createAccessToken(user).map(_.value))
+      } yield AuthTokens(
+        accessToken = accessToken,
+        refreshToken = newRefreshTokenStr,
+        expiresIn = config.accessTokenExpiration.toSeconds,
+      )).transact(xa)
     }
 }

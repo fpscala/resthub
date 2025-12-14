@@ -1,20 +1,17 @@
 package uz.scala.algebras
 
-import java.util.UUID
-
 import cats.effect.MonadCancelThrow
 import cats.implicits._
 import doobie.syntax.connectionio._
 import org.typelevel.log4cats.Logger
 import tsec.passwordhashers.PasswordHasher
 import tsec.passwordhashers.jca.SCrypt
-
 import uz.scala.Language
-import uz.scala.domain.RoleId
 import uz.scala.domain.UserId
 import uz.scala.domain.auth.RegisterInput
 import uz.scala.domain.auth.AuthTokens
 import uz.scala.domain.enums.UserStatus
+import uz.scala.domain.users.Role
 import uz.scala.effects.Calendar
 import uz.scala.effects.GenUUID
 import uz.scala.exception.AError
@@ -59,10 +56,6 @@ object AuthAlgebra {
         // Hash password
         hashedPassword <- SCrypt.hashpw[F](input.password.value)
 
-        // Determine role - For NestHub MVP, default to regular user role
-        // TODO: Update this UUID to match the actual USER role from migrations
-        roleId = RoleId(UUID.fromString("00000000-0000-0000-0000-000000000001")) // USER role
-
         // Generate user ID
         userId <- ID.make[F, UserId]
         now <- Calendar[F].currentZonedDateTime
@@ -78,10 +71,8 @@ object AuthAlgebra {
           firstName = input.firstName,
           lastName = input.lastName,
           phone = input.phone,
-          roleId = roleId,
+          roleId = Role.USER,
           status = UserStatus.Active, // For NestHub MVP, users are active immediately
-          emailVerified = false,
-          phoneVerified = false,
           lastLoginAt = None,
         )
 

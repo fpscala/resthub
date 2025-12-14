@@ -3,24 +3,31 @@ import { cn } from '@/lib/utils';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'danger';
+  size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
 }
 
 /**
- * Accessible button component with variants and loading state
+ * Accessible button component with variants, sizes and loading state
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'primary', isLoading, children, disabled, ...props }, ref) => {
+  ({ className, variant = 'primary', size = 'md', isLoading, children, disabled, ...props }, ref) => {
     const variantClasses = {
       primary: 'btn-primary',
       secondary: 'btn-secondary',
       danger: 'btn-danger',
     };
 
+    const sizeClasses = {
+      sm: 'px-3 py-1.5 text-sm',
+      md: 'px-4 py-2 text-base',
+      lg: 'px-6 py-3 text-lg',
+    };
+
     return (
       <button
         ref={ref}
-        className={cn(variantClasses[variant], className)}
+        className={cn(variantClasses[variant], sizeClasses[size], className)}
         disabled={disabled || isLoading}
         {...props}
       >

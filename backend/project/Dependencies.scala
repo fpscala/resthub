@@ -36,6 +36,7 @@ object Dependencies {
     lazy val mailer = "1.4.7"
     lazy val `fs2-kafka` = "3.0.1"
     lazy val telegramium = "10.902.0"
+    lazy val pdfbox = "3.0.3"
   }
   trait LibGroup {
     def all: Seq[ModuleID]
@@ -150,6 +151,13 @@ object Dependencies {
     lazy val postgresql: ModuleID = "org.postgresql" % "postgresql" % Versions.postgresql
     lazy val testcontainers: ModuleID =
       "org.testcontainers" % "postgresql" % Versions.`test-container`
+
+    object apache {
+      object pdfbox extends LibGroup {
+        lazy val core: ModuleID = "org.apache.pdfbox" % "pdfbox" % Versions.pdfbox
+        override def all: Seq[ModuleID] = Seq(core)
+      }
+    }
 
     object typelevel {
       object cats {

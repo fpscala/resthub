@@ -1,9 +1,9 @@
 'use client';
 
-import Image from 'next/image';
 import { useListing } from '@/hooks/useListings';
 import { useGenerateContract } from '@/hooks/useContract';
 import { Button } from '@/components/ui/Button';
+import { ImageGallery } from '@/components/ImageGallery';
 import { formatPrice, formatDate } from '@/lib/utils';
 
 /**
@@ -47,42 +47,11 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     );
   }
 
-  const mainImage = listing.images[0] || 'https://via.placeholder.com/800x600?text=No+Image';
-
   return (
     <div className="container-custom py-8">
       {/* Image Gallery */}
       <div className="mb-8">
-        <div className="relative h-96 w-full overflow-hidden rounded-lg bg-gray-200">
-          <Image
-            src={mainImage}
-            alt={listing.title}
-            fill
-            className="object-cover"
-            priority
-            sizes="(max-width: 1280px) 100vw, 1280px"
-          />
-        </div>
-
-        {/* Thumbnail grid (if multiple images) */}
-        {listing.images.length > 1 && (
-          <div className="mt-4 grid grid-cols-4 gap-4">
-            {listing.images.slice(1, 5).map((image, index) => (
-              <div
-                key={index}
-                className="relative h-24 overflow-hidden rounded-lg bg-gray-200"
-              >
-                <Image
-                  src={image}
-                  alt={`${listing.title} - Image ${index + 2}`}
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 768px) 25vw, 200px"
-                />
-              </div>
-            ))}
-          </div>
-        )}
+        <ImageGallery images={listing.images} title={listing.title} />
       </div>
 
       <div className="grid gap-8 lg:grid-cols-3">

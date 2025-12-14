@@ -14,6 +14,7 @@ import uz.scala.aws.s3.S3Client
 import uz.scala.domain.AuthedUser
 import uz.scala.mailer.Mailer
 import uz.scala.redis.RedisClient
+import uz.scala.services.PdfService
 
 case class Algebras[F[_]](
     auth: Auth[F, AuthedUser],
@@ -48,8 +49,9 @@ object Algebras {
     val authAlgebra = AuthAlgebra.make[F](repositories.users)
     val listings = ListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
     val adminListings = AdminListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
+    val pdfService = PdfService.make[F]
     val contracts =
-      ContractsAlgebra.make[F](repositories.contracts, repositories.listings, repositories.users)
+      ContractsAlgebra.make[F](repositories.contracts, repositories.listings, repositories.users, s3Client, pdfService)
     val telegramBot = TelegramBotAlgebra.make[F](
       botApi,
       repositories.telegramUsers,

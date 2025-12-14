@@ -38,13 +38,16 @@ export function ImageUploader({
   const [previews, setPreviews] = useState<string[]>([]);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const validateAndAddFiles = (files: File[]) => {
+    const currentCount = selectedFiles.length;
+    const newFilesCount = files.length;
+    const totalCount = currentCount + newFilesCount;
 
-    if (files.length > maxFiles) {
-      toast.error(`Maximum ${maxFiles} files allowed`);
+    if (totalCount > maxFiles) {
+      toast.error(`Maximum ${maxFiles} files allowed. You can add ${maxFiles - currentCount} more.`);
       return;
     }
 
@@ -64,11 +67,44 @@ export function ImageUploader({
       validFiles.push(file);
     }
 
-    setSelectedFiles(validFiles);
+    if (validFiles.length > 0) {
+      // Add to existing files
+      const updatedFiles = [...selectedFiles, ...validFiles];
+      setSelectedFiles(updatedFiles);
 
-    // Generate previews
-    const newPreviews = validFiles.map((file) => URL.createObjectURL(file));
-    setPreviews(newPreviews);
+      // Generate previews for new files
+      const newPreviews = validFiles.map((file) => URL.createObjectURL(file));
+      setPreviews([...previews, ...newPreviews]);
+
+      toast.success(`${validFiles.length} image(s) added`);
+    }
+  };
+
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    validateAndAddFiles(files);
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    validateAndAddFiles(files);
   };
 
   const handleUpload = async () => {
@@ -118,11 +154,19 @@ export function ImageUploader({
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* File input */}
-      <div>
-        <label className="label">
-          Upload Images (Max {maxFiles}, 5MB each, JPG/PNG/WebP)
-        </label>
+      {/* Drag & Drop Area */}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cn(
+          'relative rounded-lg border-2 border-dashed p-8 text-center transition-colors',
+          isDragging
+            ? 'border-blue-500 bg-blue-50'
+            : 'border-gray-300 bg-gray-50 hover:border-gray-400',
+          isUploading && 'pointer-events-none opacity-50'
+        )}
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -130,8 +174,51 @@ export function ImageUploader({
           multiple
           onChange={handleFileSelect}
           disabled={isUploading}
-          className="input"
+          className="hidden"
         />
+
+        <div className="space-y-4">
+          <div className="flex justify-center">
+            <svg
+              className="h-16 w-16 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+          </div>
+
+          <div>
+            <p className="text-lg font-medium text-gray-700">
+              {isDragging ? 'Drop images here' : 'Drag & drop images here'}
+            </p>
+            <p className="mt-1 text-sm text-gray-500">or</p>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || selectedFiles.length >= maxFiles}
+              className="mt-2"
+            >
+              Browse Files
+            </Button>
+          </div>
+
+          <p className="text-xs text-gray-500">
+            Max {maxFiles} files • 5MB each • JPG, PNG, WebP
+            {selectedFiles.length > 0 && (
+              <span className="ml-2 font-medium text-blue-600">
+                ({selectedFiles.length}/{maxFiles} selected)
+              </span>
+            )}
+          </p>
+        </div>
       </div>
 
       {/* Previews */}

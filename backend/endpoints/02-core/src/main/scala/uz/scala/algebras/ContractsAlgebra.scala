@@ -3,9 +3,11 @@ package uz.scala.algebras
 import cats.effect.MonadCancelThrow
 import cats.implicits._
 import doobie.syntax.connectionio._
+import fs2.Stream
 import org.typelevel.log4cats.Logger
 
 import uz.scala.Language
+import uz.scala.aws.s3.S3Client
 import uz.scala.domain.AuthedUser
 import uz.scala.domain.ContractId
 import uz.scala.domain.ListingId
@@ -17,6 +19,7 @@ import uz.scala.repos.ContractsRepository
 import uz.scala.repos.ListingsRepository
 import uz.scala.repos.UsersRepository
 import uz.scala.repos.dto
+import uz.scala.services.PdfService
 import uz.scala.shared.ResponseMessages._
 import uz.scala.utils.ID
 
@@ -25,25 +28,27 @@ trait ContractsAlgebra[F[_]] {
 }
 
 object ContractsAlgebra {
-  def make[F[_]: MonadCancelThrow: Calendar: GenUUID: Logger](
+  def make[F[_]: MonadCancelThrow: Calendar: GenUUID: Logger: fs2.Compiler.Target](
       contractsRepository: ContractsRepository[doobie.ConnectionIO],
       listingsRepository: ListingsRepository[doobie.ConnectionIO],
       usersRepository: UsersRepository[doobie.ConnectionIO],
-      // s3Client: S3Client[F], // TODO: Add S3 client for uploading PDF
+      s3Client: S3Client[F],
+      pdfService: PdfService[F],
     )(implicit
       xa: doobie.Transactor[F]
     ): ContractsAlgebra[F] =
-    new Impl[F](contractsRepository, listingsRepository, usersRepository)
+    new Impl[F](contractsRepository, listingsRepository, usersRepository, s3Client, pdfService)
 
-  private class Impl[F[_]: MonadCancelThrow: GenUUID: Calendar](
+  private class Impl[F[_]: MonadCancelThrow: GenUUID: Calendar: fs2.Compiler.Target](
       contractsRepository: ContractsRepository[doobie.ConnectionIO],
       listingsRepository: ListingsRepository[doobie.ConnectionIO],
       usersRepository: UsersRepository[doobie.ConnectionIO],
+      s3Client: S3Client[F],
+      pdfService: PdfService[F],
     )(implicit
       logger: Logger[F],
       xa: doobie.Transactor[F],
     ) extends ContractsAlgebra[F] {
-
     override def generate(
         listingId: ListingId
       )(implicit
@@ -59,11 +64,11 @@ object ContractsAlgebra {
           AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]
         )(_.pure[F])
 
-        _ <- if (listing.status != ListingStatus.Approved) {
-          AError.BadRequest(LISTING_NOT_APPROVED(lang)).raiseError[F, Unit]
-        } else {
-          ().pure[F]
-        }
+        _ <-
+          if (listing.status != ListingStatus.Approved)
+            AError.BadRequest(LISTING_NOT_APPROVED(lang)).raiseError[F, Unit]
+          else
+            ().pure[F]
 
         // Get listing owner info
         ownerOpt <- usersRepository.findById(listing.ownerId).transact(xa)
@@ -71,14 +76,30 @@ object ContractsAlgebra {
           AError.Internal("Owner not found").raiseError[F, dto.User]
         )(_.pure[F])
 
-        // TODO: Generate PDF using Apache PDFBox or external service (Gotenberg)
-        // For MVP, we'll create a simple text-based contract
+        // Generate contract content
         contractContent = generateContractContent(listing, owner, user)
+        _ <- logger.info("Contract content generated")
 
-        // TODO: Upload PDF to S3 and get public URL
-        // For now, we'll use a placeholder URL
+        // Generate PDF bytes
+        pdfBytes <- pdfService.generateContractPdf(contractContent)
+        _ <- logger.info(s"PDF generated, size: ${pdfBytes.length} bytes")
+
+        // Generate contract ID and S3 key
         contractId <- ID.make[F, ContractId]
-        pdfUrl = s"https://nesthub-contracts.s3.amazonaws.com/${contractId.value}.pdf"
+        s3Key = s"contracts/${contractId.value}.pdf"
+
+        // Upload to S3 with public read access
+        _ <- Stream
+          .emits(pdfBytes)
+          .covary[F]
+          .through(s3Client.putObjectPublic(s3Key, pdfBytes.length.toLong))
+          .compile
+          .drain
+        _ <- logger.info(s"PDF uploaded to S3: $s3Key")
+
+        // Get public URL
+        pdfUrl <- s3Client.generatePublicUrl(s3Key)
+        _ <- logger.info(s"Public URL generated: $pdfUrl")
 
         // Save contract metadata to database
         now <- Calendar[F].currentZonedDateTime
@@ -91,7 +112,7 @@ object ContractsAlgebra {
         )
 
         _ <- contractsRepository.create(contract).transact(xa)
-        _ <- logger.info(s"Contract generated successfully: $contractId")
+        _ <- logger.info(s"Contract saved to database: $contractId")
       } yield pdfUrl
 
     private def generateContractContent(
@@ -99,6 +120,9 @@ object ContractsAlgebra {
         owner: dto.User,
         tenant: AuthedUser,
       ): String = {
+      // Format price as "1,000,000 UZS"
+      val priceFormatted = f"${listing.price.amount}%,.0f ${listing.price.currency.code}"
+
       s"""
          |UY-JOY IJARASI SHARTNOMASI
          |
@@ -125,7 +149,7 @@ object ContractsAlgebra {
          |
          |3. IJARA HAQI
          |
-         |Oylik to'lov: ${listing.price} UZS
+         |Oylik to'lov: $priceFormatted
          |
          |4. SHARTNOMA MUDDATI
          |

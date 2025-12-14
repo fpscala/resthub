@@ -16,6 +16,7 @@ import uz.scala.effects.Calendar
 import uz.scala.effects.GenUUID
 import uz.scala.exception.AError
 import uz.scala.repos.ListingsRepository
+import uz.scala.repos.RolesRepository
 import uz.scala.repos.UsersRepository
 import uz.scala.repos.dto
 import uz.scala.shared.ResponseMessages._
@@ -34,14 +35,16 @@ object ListingsAlgebra {
   def make[F[_]: MonadCancelThrow: Calendar: GenUUID: Logger](
       listingsRepository: ListingsRepository[doobie.ConnectionIO],
       usersRepository: UsersRepository[doobie.ConnectionIO],
+      rolesRepository: RolesRepository[doobie.ConnectionIO],
     )(implicit
       xa: doobie.Transactor[F]
     ): ListingsAlgebra[F] =
-    new Impl[F](listingsRepository, usersRepository)
+    new Impl[F](listingsRepository, usersRepository, rolesRepository)
 
   private class Impl[F[_]: MonadCancelThrow: GenUUID: Calendar](
       listingsRepository: ListingsRepository[doobie.ConnectionIO],
       usersRepository: UsersRepository[doobie.ConnectionIO],
+      rolesRepository: RolesRepository[doobie.ConnectionIO],
     )(implicit
       logger: Logger[F],
       xa: doobie.Transactor[F],
@@ -152,22 +155,21 @@ object ListingsAlgebra {
           }
           .map(_.toMap)
 
-        // Convert to ListingOutput
-        outputs = listings.map { listing =>
-          val ownerOpt = owners.get(listing.ownerId).flatten
-          val ownerDomain = ownerOpt
-            .map { owner =>
-              owner
-                .into[uz.scala.domain.users.User]
-                .withFieldComputed(_.role, _ => ???) // TODO: Load role
-                .transform
-            }
-            .getOrElse(???) // Should not happen
+        // Get all unique role IDs from owners
+        roleIds = owners.values.flatten.map(_.roleId).toList.distinct
 
-          listing
-            .into[ListingOutput]
-            .withFieldConst(_.owner, ownerDomain)
-            .transform
+        // Fetch all roles in one query
+        roles <- rolesRepository.getRoles(roleIds).transact(xa)
+
+        // Convert to ListingOutput
+        outputs = listings.flatMap { listing =>
+          for {
+            owner <- owners.get(listing.ownerId).flatten
+            role <- roles.get(owner.roleId)
+          } yield {
+            val ownerDomain = owner.toDomain(role)
+            listing.toDomain(ownerDomain)
+          }
         }
 
       } yield ResponseData(outputs, total)

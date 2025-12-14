@@ -46,8 +46,8 @@ object Algebras {
     val roles = RolesAlgebra.make[F](repositories.roles)
     val emailService = EmailService.make[F](mailer, frontendBaseUrl, activationPath)
     val authAlgebra = AuthAlgebra.make[F](repositories.users)
-    val listings = ListingsAlgebra.make[F](repositories.listings, repositories.users)
-    val adminListings = AdminListingsAlgebra.make[F](repositories.listings, repositories.users)
+    val listings = ListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
+    val adminListings = AdminListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
     val contracts =
       ContractsAlgebra.make[F](repositories.contracts, repositories.listings, repositories.users)
     val telegramBot = TelegramBotAlgebra.make[F](

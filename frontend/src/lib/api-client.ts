@@ -43,17 +43,11 @@ apiClient.interceptors.request.use(
     // For MVP, we use localStorage for simplicity
     const tokens = typeof window !== 'undefined' ? localStorage.getItem('auth_tokens') : null;
 
-    console.log('Request interceptor - tokens from localStorage:', tokens); // Debug log
-    console.log('Request interceptor - URL:', config.url); // Debug log
-
     if (tokens && config.headers) {
       try {
         const parsedTokens = JSON.parse(tokens) as AuthTokens;
-        console.log('Adding auth header:', parsedTokens.accessToken); // Debug log
         config.headers.Authorization = `${parsedTokens.tokenType} ${parsedTokens.accessToken}`;
-        console.log('Final Authorization header:', config.headers.Authorization); // Debug log
       } catch (error) {
-        console.error('Failed to parse tokens:', error); // Debug log
         // Invalid token format, continue without auth
       }
     } else {

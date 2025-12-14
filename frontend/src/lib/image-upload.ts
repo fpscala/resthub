@@ -1,7 +1,6 @@
-import { get } from '@/lib/api-client';
-import { uploadToPresignedUrl } from '@/lib/api-client';
-import { PresignResponse, ImageUploadResult } from '@/types';
-import { generateFileKey, validateImageFile } from '@/lib/utils';
+import { ImageUploadResult } from '@/types';
+import { validateImageFile } from '@/lib/utils';
+import { getAccessToken } from '@/lib/auth';
 
 export interface UploadProgress {
   fileIndex: number;
@@ -29,9 +28,12 @@ export async function uploadImage(
   onProgress?: (progress: number) => void
 ): Promise<ImageUploadResult> {
   try {
+    console.log('Starting upload for file:', file.name);
+
     // Validate file
     const validation = validateImageFile(file);
     if (!validation.valid) {
+      console.error('Validation failed:', validation.error);
       return {
         publicUrl: '',
         success: false,
@@ -39,23 +41,79 @@ export async function uploadImage(
       };
     }
 
-    // Generate unique key for the file
-    const fileKey = generateFileKey(file.name);
+    // Upload file directly to backend
+    const formData = new FormData();
+    formData.append('file', file);
 
-    // Step 1: Request presigned URL from backend
-    // TODO: Replace with actual API call once backend is ready
-    const presignData = await mockGetPresignedUrl(fileKey);
-    // const presignData = await get<PresignResponse>(`/s3/presign?key=${fileKey}`);
+    // Get and log token
+    const token = getAccessToken();
+    console.log('Token exists:', !!token);
+    console.log('Token length:', token ? token.length : 0);
+    console.log('API URL:', process.env.NEXT_PUBLIC_API_URL);
 
-    // Step 2: Upload file to S3/MinIO using presigned URL
-    await uploadToPresignedUrl(presignData.url, file, onProgress);
+    // Use XMLHttpRequest for progress tracking
+    const response = await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
 
-    // Step 3: Return public URL
+      // Track upload progress
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const progress = Math.round((event.loaded / event.total) * 100);
+            console.log('Upload progress:', progress + '%');
+            onProgress(progress);
+          }
+        });
+      }
+
+      xhr.addEventListener('load', () => {
+        console.log('XHR status:', xhr.status);
+        console.log('XHR response:', xhr.responseText);
+
+        if (xhr.status === 201) {
+          try {
+            const result = JSON.parse(xhr.responseText);
+            console.log('Parsed result:', result);
+            resolve(result.publicUrl);
+          } catch (e) {
+            console.error('JSON parse error:', e);
+            reject(new Error('Invalid response format'));
+          }
+        } else {
+          console.error('Upload failed with status:', xhr.status);
+          reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.responseText}`));
+        }
+      });
+
+      xhr.addEventListener('error', (error) => {
+        console.error('XHR error:', error);
+        reject(new Error('Upload failed'));
+      });
+
+      // Open and send request
+      xhr.open('POST', `${process.env.NEXT_PUBLIC_API_URL}/upload`);
+      console.log('Opening request to:', `${process.env.NEXT_PUBLIC_API_URL}/upload`);
+
+      // Set headers after opening
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        console.log('Authorization header set');
+      } else {
+        console.warn('No token found, proceeding without auth');
+      }
+
+      console.log('Sending request...');
+      xhr.send(formData);
+    });
+
+    // Return public URL
+    console.log('Upload successful, URL:', response);
     return {
-      publicUrl: presignData.publicUrl,
+      publicUrl: response,
       success: true,
     };
   } catch (error: any) {
+    console.error('Upload error:', error);
     return {
       publicUrl: '',
       success: false,
@@ -149,18 +207,3 @@ export async function uploadMultipleImages(
   return successfulUploads;
 }
 
-/**
- * Mock presigned URL generator for development
- * TODO: Remove once backend is ready
- */
-async function mockGetPresignedUrl(key: string): Promise<PresignResponse> {
-  await new Promise((resolve) => setTimeout(resolve, 200));
-
-  // In real implementation, backend would generate these URLs
-  const bucketUrl = process.env.NEXT_PUBLIC_S3_BUCKET_URL || 'http://localhost:9000';
-
-  return {
-    url: `${bucketUrl}/uploads/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...`,
-    publicUrl: `${bucketUrl}/uploads/${key}`,
-  };
-}

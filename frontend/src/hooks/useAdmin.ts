@@ -22,33 +22,7 @@ export const adminKeys = {
 export function useAdminListings(params: AdminListingsQueryParams = {}) {
   return useQuery({
     queryKey: adminKeys.listings(params),
-    queryFn: async (): Promise<PaginatedResponse<Listing>> => {
-      // TODO: Replace with actual API call
-      // return get<PaginatedResponse<Listing>>('/admin/listings', params);
-
-      // Mock data
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const mockPendingListings: Listing[] = [
-        {
-          id: '3',
-          ownerId: 'user-1',
-          title: 'Spacious 3BR House',
-          description: 'Family-friendly house with backyard and garage.',
-          price: 3200,
-          city: 'Austin',
-          images: [],
-          status: 'PENDING',
-          createdAt: new Date().toISOString(),
-        },
-      ];
-
-      return {
-        items: mockPendingListings.filter((l) =>
-          params.status ? l.status === params.status : true
-        ),
-        total: mockPendingListings.length,
-      };
-    },
+    queryFn: () => get<PaginatedResponse<Listing>>('/admin/listings', params),
     staleTime: 1000 * 60, // 1 minute
   });
 }
@@ -66,12 +40,7 @@ export function useApproveListing() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (listingId: string): Promise<void> => {
-      // TODO: Replace with actual API call
-      // return post(`/admin/listings/${listingId}/approve`);
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    },
+    mutationFn: (listingId: string) => post(`/admin/listings/${listingId}/approve`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.all });
       toast.success('Listing approved successfully');
@@ -95,12 +64,8 @@ export function useRejectListing() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (listingId: string): Promise<void> => {
-      // TODO: Replace with actual API call
-      // return post(`/admin/listings/${listingId}/reject`);
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    },
+    mutationFn: (listingId: string) =>
+      post(`/admin/listings/${listingId}/reject`, { reason: 'Does not meet requirements' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminKeys.all });
       toast.success('Listing rejected');

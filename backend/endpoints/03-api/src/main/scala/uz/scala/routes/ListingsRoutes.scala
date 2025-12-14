@@ -12,6 +12,7 @@ import org.http4s.dsl.impl.OptionalQueryParamDecoderMatcher
 import org.typelevel.log4cats.Logger
 
 import uz.scala.Language
+import uz.scala.ObjectId
 import uz.scala.SuccessResult
 import uz.scala.algebras.ListingsAlgebra
 import uz.scala.domain.AuthedUser
@@ -22,6 +23,7 @@ import uz.scala.http4s.syntax.all.deriveEntityEncoder
 import uz.scala.http4s.syntax.all.http4SyntaxReqOps
 import uz.scala.http4s.utils.Routes
 import uz.scala.shared.ResponseMessages._
+import uz.scala.syntax.all.coercibleEncoder
 import uz.scala.syntax.refined._
 
 final case class ListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
@@ -64,7 +66,7 @@ final case class ListingsRoutes[F[_]: Logger: JsonDecoder: MonadThrow](
       implicit val language: Language = ar.req.lang
       ar.req.decodeR[CreateListingInput] { input =>
         listingsAlgebra.create(input).flatMap { listingId =>
-          Created(SuccessResult(LISTING_CREATED(language)))
+          Created(ObjectId(listingId, ROLE_CREATED(language).some))
         }
       }
 

@@ -16,6 +16,7 @@ import uz.scala.domain.listings._
 import uz.scala.effects.Calendar
 import uz.scala.exception.AError
 import uz.scala.repos.ListingsRepository
+import uz.scala.repos.RolesRepository
 import uz.scala.repos.UsersRepository
 import uz.scala.repos.dto
 import uz.scala.shared.ResponseMessages._
@@ -43,14 +44,16 @@ object AdminListingsAlgebra {
   def make[F[_]: MonadCancelThrow: Calendar: Logger](
       listingsRepository: ListingsRepository[doobie.ConnectionIO],
       usersRepository: UsersRepository[doobie.ConnectionIO],
+      rolesRepository: RolesRepository[doobie.ConnectionIO],
     )(implicit
       xa: doobie.Transactor[F]
     ): AdminListingsAlgebra[F] =
-    new Impl[F](listingsRepository, usersRepository)
+    new Impl[F](listingsRepository, usersRepository, rolesRepository)
 
   private class Impl[F[_]: MonadCancelThrow: Calendar](
       listingsRepository: ListingsRepository[doobie.ConnectionIO],
       usersRepository: UsersRepository[doobie.ConnectionIO],
+      rolesRepository: RolesRepository[doobie.ConnectionIO],
     )(implicit
       logger: Logger[F],
       xa: doobie.Transactor[F],
@@ -92,19 +95,20 @@ object AdminListingsAlgebra {
           }
           .map(_.toMap)
 
+        // Get all unique role IDs from owners
+        roleIds = owners.values.flatten.map(_.roleId).toList.distinct
+
+        // Fetch all roles in one query
+        roles <- rolesRepository.getRoles(roleIds).transact(xa)
+
         // Convert to ListingOutput
         outputs = listings.flatMap { listing =>
-          owners.get(listing.ownerId).flatten.map { owner =>
-            val ownerDomain = owner
-              .into[uz.scala.domain.users.User]
-              .withFieldComputed(_.role, _ => user.role) // TODO: Load actual role
-              .transform
-
-            listing
-              .into[ListingOutput]
-              .withFieldConst(_.owner, ownerDomain)
-              .withFieldComputed(_.price, _.price)
-              .transform
+          for {
+            owner <- owners.get(listing.ownerId).flatten
+            role <- roles.get(owner.roleId)
+          } yield {
+            val ownerDomain = owner.toDomain(role)
+            listing.toDomain(ownerDomain)
           }
         }
 

@@ -77,9 +77,9 @@ object ResponseMessages {
   )
 
   val PASSWORD_DOES_NOT_MATCH: Map[Language, String] = Map(
-    En -> "Sms code does not match",
-    Ru -> "Код подтверждения не совпадает",
-    Uz -> "SMS kodi mos kelmadi",
+    En -> "Password does not match",
+    Ru -> "Пароль не совпадает",
+    Uz -> "Parol mos kelmaydi",
   )
 
   val INSUFFICIENT_PRIVILEGES: Map[Language, String] = Map(

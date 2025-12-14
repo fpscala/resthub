@@ -50,27 +50,19 @@ export function useGetPresignedUrl() {
 export function useUploadFile() {
   const getPresignedUrl = useGetPresignedUrl();
 
-  return useMutation({
-    mutationFn: async (
-      file: File,
-      options?: {
-        onProgress?: (progress: number) => void;
-        keyPrefix?: string;
-      }
-    ): Promise<string> => {
+  return useMutation<string, Error, File>({
+    mutationFn: async (file: File): Promise<string> => {
       // Generate unique key for the file
       const timestamp = Date.now();
       const randomString = Math.random().toString(36).substring(2, 15);
       const fileExtension = file.name.split('.').pop();
-      const key = options?.keyPrefix
-        ? `${options.keyPrefix}/${timestamp}-${randomString}.${fileExtension}`
-        : `uploads/${timestamp}-${randomString}.${fileExtension}`;
+      const key = `uploads/${timestamp}-${randomString}.${fileExtension}`;
 
       // Get presigned URL
-      const { presignedUrl, publicUrl } = await getPresignedUrl.mutateAsync({ key });
+      const { url, publicUrl } = await getPresignedUrl.mutateAsync({ key });
 
       // Upload file directly to S3/MinIO
-      await uploadToPresignedUrl(presignedUrl, file, options?.onProgress);
+      await uploadToPresignedUrl(url, file, () => {});
 
       return publicUrl;
     },
@@ -99,27 +91,10 @@ export function useUploadFile() {
 export function useUploadMultipleFiles() {
   const uploadFile = useUploadFile();
 
-  return useMutation({
-    mutationFn: async (
-      files: File[],
-      options?: {
-        onProgress?: (progress: number) => void;
-        keyPrefix?: string;
-      }
-    ): Promise<string[]> => {
-      const uploadPromises = files.map((file, index) => {
-        // Calculate individual file progress contribution
-        const fileProgress = options?.onProgress
-          ? (progress: number) => {
-              const totalProgress = ((progress + (index * 100)) / files.length);
-              options.onProgress?.(totalProgress);
-            }
-          : undefined;
-
-        return uploadFile.mutateAsync(file, {
-          onProgress: fileProgress,
-          keyPrefix: options?.keyPrefix
-        });
+  return useMutation<string[], Error, File[]>({
+    mutationFn: async (files: File[]): Promise<string[]> => {
+      const uploadPromises = files.map((file) => {
+        return uploadFile.mutateAsync(file);
       });
 
       return Promise.all(uploadPromises);

@@ -70,7 +70,7 @@ export function Navbar() {
                 )}
 
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-600">Hello, {user?.name}</span>
+                  <span className="text-sm text-gray-600">Hello, {user?.firstName}</span>
                   <Button variant="secondary" onClick={logout} className="text-sm">
                     Logout
                   </Button>

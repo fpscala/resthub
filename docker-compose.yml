@@ -5,12 +5,11 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: nesthub-postgres
+    hostname: postgres
     environment:
       POSTGRES_DB: nesthub
-      POSTGRES_USER: nesthub_user
-      POSTGRES_PASSWORD: nesthub_password
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: nesthub
+      POSTGRES_PASSWORD: NesthubSecure1!
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/endpoints/01-repos/src/main/resources/db/migration:/docker-entrypoint-initdb.d
@@ -25,9 +24,8 @@ services:
   # Redis for caching
   redis:
     image: redis:7-alpine
+    hostname: redis
     container_name: nesthub-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -42,12 +40,10 @@ services:
   minio:
     image: minio/minio:latest
     container_name: nesthub-minio
+    hostname: minio
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
-    ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Console
     volumes:
       - minio_data:/data
     networks:
@@ -65,19 +61,14 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: nesthub-backend-api
+    hostname: endpoints
     env_file:
       - .env
     environment:
-      # Override Docker-specific values
-      DATABASE_URL: jdbc:postgresql://postgres:5432/nesthub
-      DATABASE_USER: nesthub_user
-      DATABASE_PASSWORD: nesthub_password
       REDIS_URL: redis://redis:6379
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://minio.scala.uz
       SERVER_HOST: 0.0.0.0
-      SERVER_PORT: 8080
-    ports:
-      - "8080:8080"
+      SERVER_PORT: 8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,40 +80,10 @@ services:
       - nesthub-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # Telegram Bot Service (separate container for better isolation)
-  telegram-bot:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: bot-service  # Assuming multi-stage build
-    container_name: nesthub-telegram-bot
-    env_file:
-      - .env
-    environment:
-      # Override Docker-specific values
-      DATABASE_URL: jdbc:postgresql://postgres:5432/nesthub
-      DATABASE_USER: nesthub_user
-      DATABASE_PASSWORD: nesthub_password
-      REDIS_URL: redis://redis:6379
-      S3_ENDPOINT: http://minio:9000
-      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL}/webhook
-      LOG_LEVEL: INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    networks:
-      - nesthub-network
-    restart: unless-stopped
-    command: ["--mode", "bot"]  # Assuming CLI argument for bot mode
 
   # Next.js Frontend
   frontend:
@@ -130,11 +91,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: nesthub-frontend
+    hostname: frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080/api
-      NEXT_PUBLIC_S3_BUCKET_URL: http://localhost:9000/nesthub-uploads
-    ports:
-      - "3000:3000"
+      NEXT_PUBLIC_API_URL: http://nest.scala.uz/api
+      NEXT_PUBLIC_S3_BUCKET_URL: http://minio.scala.uz
     depends_on:
       - backend-api
     networks:
@@ -148,16 +108,23 @@ services:
 
   # Certbot for SSL certificates
   certbot:
-    image: certbot/certbot:latest
-    container_name: nesthub-certbot
-    volumes:
-      - ./nginx/certbot/conf:/etc/letsencrypt
-      - ./nginx/certbot/www:/var/www/certbot
+    image: nbraun1/certbot
+    container_name: certbot
+    depends_on:
+      - nginx
+    environment:
+      EMAIL: admin@scala.uz
+      DOMAINS: nest.scala.uz
+      AUTHENTICATOR: webroot
+      WEBROOT_PATH: /var/www/letsencrypt
+      POST_HOOK_CMD: docker kill -s HUP $$(docker ps --filter "name=webserver" | awk '{print $$1}')
+      CRON: "0 */12 * * *"
     networks:
-      - nesthub-network
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
-    profiles:
-      - production
+      - external-net
+    volumes:
+      - ./data/certbot/letsencrypt:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 
   # Nginx Reverse Proxy (Optional, for production)
   nginx:
@@ -167,10 +134,9 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/certbot/conf:/etc/letsencrypt
-      - ./nginx/certbot/www:/var/www/certbot
+      - ./configs:/etc/nginx/conf.d
+      - ./data/certbot/letsencrypt:/etc/letsencrypt:ro
+      - ./data/certbot/www:/var/www/letsencrypt:ro
     depends_on:
       - backend-api
       - frontend

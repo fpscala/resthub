@@ -66,7 +66,6 @@ function CreateListingContent() {
     if (!user) return;
 
     await createListing.mutateAsync({
-      ownerId: user.id,
       title: formData.title,
       description: formData.description,
       price: Number(formData.price),

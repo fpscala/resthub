@@ -275,4 +275,34 @@ object ResponseMessages {
     Uz -> "Token zanjiri buzilgan. Iltimos, qayta kiring",
   )
 
+  val CITY_NOT_FOUND: Map[Language, String] = Map(
+    En -> "City not found",
+    Ru -> "Город не найден",
+    Uz -> "Shahar topilmadi",
+  )
+
+  val CITY_CREATED: Map[Language, String] = Map(
+    En -> "City successfully created",
+    Ru -> "Город успешно создан",
+    Uz -> "Shahar yaratildi",
+  )
+
+  val CITY_UPDATED: Map[Language, String] = Map(
+    En -> "City updated successfully",
+    Ru -> "Город успешно обновлен",
+    Uz -> "Shahar yangilandi",
+  )
+
+  val CITY_DELETED: Map[Language, String] = Map(
+    En -> "City deleted successfully",
+    Ru -> "Город успешно удален",
+    Uz -> "Shahar o'chirildi",
+  )
+
+  val CITY_ALREADY_EXISTS: Map[Language, String] = Map(
+    En -> "City with this name already exists",
+    Ru -> "Город с таким названием уже существует",
+    Uz -> "Bu nomdagi shahar allaqachon mavjud",
+  )
+
 }

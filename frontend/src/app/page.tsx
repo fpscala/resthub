@@ -18,7 +18,14 @@ export default function HomePage() {
   const router = useRouter();
 
   // Fetch only 6 latest listings for preview
-  const { data, isLoading } = useListings({ page: 1, size: 6 });
+  const { data, isLoading } = useListings({
+    page: 1,
+    size: 6,
+    // Ensure no other filters are applied
+    city: '',
+    minPrice: undefined,
+    maxPrice: undefined
+  });
 
   return (
     <div>
@@ -129,7 +136,7 @@ export default function HomePage() {
             </div>
           ) : data && data.data.length > 0 ? (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {data.data.map((listing) => (
+              {data.data.slice(0, 6).map((listing) => (
                 <ListingCard
                   key={listing.id}
                   listing={listing}

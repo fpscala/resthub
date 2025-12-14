@@ -27,6 +27,7 @@ case class Algebras[F[_]](
     adminListings: AdminListingsAlgebra[F],
     contracts: ContractsAlgebra[F],
     telegramBot: TelegramBotAlgebra[F],
+    cities: CitiesAlgebra[F],
   )
 
 object Algebras {
@@ -49,16 +50,27 @@ object Algebras {
     val roles = RolesAlgebra.make[F](repositories.roles)
     val emailService = EmailService.make[F](mailer, frontendBaseUrl, activationPath)
     val authAlgebra = AuthAlgebra.make[F](repositories.users)
-    val listings = ListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
-    val adminListings = AdminListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
+    val listings =
+      ListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
+    val adminListings =
+      AdminListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
     val pdfService = PdfService.make[F]
     val contracts =
-      ContractsAlgebra.make[F](repositories.contracts, repositories.listings, repositories.users, s3Client, pdfService)
+      ContractsAlgebra.make[F](
+        repositories.contracts,
+        repositories.listings,
+        repositories.users,
+        s3Client,
+        pdfService,
+      )
+    val cities = CitiesAlgebra.make[F](repositories.cities)
+
     val telegramBot = TelegramBotAlgebra.make[F](
       botApi,
       repositories.telegramUsers,
       repositories.telegramSessions,
       listings,
+      cities,
       botToken,
       webhookBaseUrl,
     )
@@ -82,6 +94,7 @@ object Algebras {
       adminListings = adminListings,
       contracts = contracts,
       telegramBot = telegramBot,
+      cities = cities,
     )
   }
 }

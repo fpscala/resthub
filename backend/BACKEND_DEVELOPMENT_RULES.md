@@ -316,32 +316,20 @@ case class Listing(
     // ...
 ) {
   def toDomain: ListingOutput =
-    ListingOutput(
-      id = id,
-      title = title,
-      price = price.amount, // Money to BigDecimal
-      // ...
-    )
+    tish
+    .into[ListingOutput]
+    .withFieldConst(_.owner, ownerDomain)
+    .withFieldComputed(_.price, _.price.amount)
+    .transform
 }
 
 object Listing {
   def fromDomain(domain: ListingOutput): Listing =
-    Listing(
-      id = domain.id,
-      title = domain.title,
-      price = Money(domain.price), // BigDecimal to Money
-      // ...
-    )
+    domain.into[Listing]
+    .withFieldConst(_.owner, ownerDomain)
+    .withFieldComputed(_.price, _.price.amount)
+    .transform
 }
-```
-
-**Noto'g'ri misollar:**
-```scala
-// ❌ BUNDAY QILMASLIK KERAK
-listing.into[ListingOutput]
-  .withFieldConst(_.owner, ownerDomain)
-  .withFieldComputed(_.price, _.price.amount)
-  .transform
 ```
 
 ### 15. Money Type Usage

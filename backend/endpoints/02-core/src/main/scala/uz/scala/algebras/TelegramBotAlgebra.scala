@@ -6,6 +6,8 @@ import doobie.implicits._
 import io.circe.syntax._
 import org.typelevel.log4cats.Logger
 import telegramium.bots.ChatIntId
+import telegramium.bots.InlineKeyboardButton
+import telegramium.bots.InlineKeyboardMarkup
 import telegramium.bots.InputLinkFile
 import telegramium.bots.InputMediaPhoto
 import telegramium.bots.Message
@@ -40,18 +42,28 @@ object TelegramBotAlgebra {
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
       listingsAlgebra: ListingsAlgebra[F],
+      citiesAlgebra: CitiesAlgebra[F],
       botToken: String,
       webhookBaseUrl: String,
     )(implicit
       xa: doobie.Transactor[F]
     ): TelegramBotAlgebra[F] =
-    new Impl[F](api, usersRepo, sessionsRepo, listingsAlgebra, botToken, webhookBaseUrl)
+    new Impl[F](
+      api,
+      usersRepo,
+      sessionsRepo,
+      listingsAlgebra,
+      citiesAlgebra,
+      botToken,
+      webhookBaseUrl,
+    )
 
   private class Impl[F[_]: MonadCancelThrow: Calendar: Logger](
       api: Api[F],
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
       listingsAlgebra: ListingsAlgebra[F],
+      citiesAlgebra: CitiesAlgebra[F],
       botToken: String,
       webhookBaseUrl: String,
     )(implicit
@@ -254,12 +266,18 @@ object TelegramBotAlgebra {
 
         lang = Language.withName(user.languageCode)
 
+        // Get cities from database
+        cities <- citiesAlgebra.getAll
+
+        // Create dynamic keyboard from cities
+        cityKeyboard = createDynamicCityKeyboard(cities, lang)
+
         // Send city selection with inline keyboard
         _ <- Methods
           .sendMessage(
             chatId = ChatIntId(msg.chat.id),
             text = BotMessages.SELECT_CITY(lang),
-            replyMarkup = Some(TelegramKeyboards.citySelectionKeyboard(lang.toString)),
+            replyMarkup = Some(cityKeyboard),
           )
           .exec(api)
           .void
@@ -827,6 +845,34 @@ object TelegramBotAlgebra {
             Logger[F].warn("No search context found for next listing")
         }
       } yield ()
+
+    private def createDynamicCityKeyboard(
+        cities: List[uz.scala.domain.cities.City],
+        language: Language,
+      ): InlineKeyboardMarkup = {
+      // Get city names and filter out empty names
+      val cityNames = cities.map(_.name).filter(_.trim.nonEmpty)
+
+      // Get "Other city" text based on language
+      val otherCityText = language match {
+        case Language.Uz => "Boshqa shahar"
+        case Language.Ru => "Другой город"
+        case _ => "Other city"
+      }
+
+      // Create city buttons (max 5 per row to avoid overcrowding)
+      val cityButtons = cityNames.map { cityName =>
+        InlineKeyboardButton(cityName, callbackData = Some(s"city_$cityName"))
+      }
+
+      // Add "Other city" button
+      val otherButton = InlineKeyboardButton(otherCityText, callbackData = Some("city_other"))
+
+      // Group buttons in rows of 2 for better UX
+      val allButtons = (cityButtons :+ otherButton).grouped(2).toList
+
+      InlineKeyboardMarkup(allButtons)
+    }
 
     override def setupWebhook(): F[Unit] = {
       val fullWebhookUrl = s"$webhookBaseUrl/$botToken"

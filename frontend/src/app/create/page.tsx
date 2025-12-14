@@ -6,8 +6,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
 import { ImageUploader } from '@/components/ImageUploader';
 import { CreateListingFormData } from '@/types';
+import { useCities } from '@/hooks/useCities';
 
 /**
  * Create listing page (protected)
@@ -21,6 +23,7 @@ import { CreateListingFormData } from '@/types';
 function CreateListingContent() {
   const { user } = useAuth();
   const createListing = useCreateListing();
+  const { data: cities, isLoading: citiesLoading } = useCities();
 
   const [formData, setFormData] = useState({
     title: '',
@@ -47,8 +50,8 @@ function CreateListingContent() {
       newErrors.price = 'Price must be greater than 0';
     }
 
-    if (!formData.city.trim()) {
-      newErrors.city = 'City is required';
+    if (!formData.city) {
+      newErrors.city = 'Shaharni tanlang';
     }
 
     if (formData.images.length === 0) {
@@ -115,12 +118,16 @@ function CreateListingContent() {
             required
           />
 
-          <Input
-            label="City"
-            placeholder="e.g., San Francisco"
+          <Select
+            label="Shahar"
             value={formData.city}
             onChange={(e) => setFormData({ ...formData, city: e.target.value })}
             error={errors.city}
+            options={(cities || []).filter(city => city !== '').map((city: string) => ({ // Empty qiymatni olmaymiz
+              value: city,
+              label: city
+            }))}
+            disabled={citiesLoading}
             required
           />
 

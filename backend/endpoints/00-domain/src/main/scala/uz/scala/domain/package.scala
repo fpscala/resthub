@@ -9,10 +9,7 @@ import eu.timepit.refined.W
 import eu.timepit.refined.api.Refined
 import eu.timepit.refined.numeric.Interval.Closed
 import eu.timepit.refined.string.MatchesRegex
-import io.circe.Decoder
-import io.circe.Encoder
 import io.estatico.newtype.macros.newtype
-import squants.Money
 import squants.market.Currency
 
 import uz.scala.utils.uuid
@@ -55,4 +52,6 @@ package object domain {
   @newtype case class ListingId(value: UUID)
   @derive(eqv, show, uuid)
   @newtype case class ContractId(value: UUID)
+  @derive(eqv, show, uuid)
+  @newtype case class CityId(value: UUID)
 }

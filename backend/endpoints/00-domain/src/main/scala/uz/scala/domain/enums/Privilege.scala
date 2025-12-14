@@ -67,6 +67,24 @@ object Privilege extends Enum[Privilege] with CirceEnum[Privilege] with DoobieEn
     override val description: String = "Elonlarni rad etish huquqi"
   }
 
+  // Cities
+  case object CreateCity extends Privilege {
+    override val group: String = "CITY"
+    override val description: String = "Yangi shahar qo'shish huquqi"
+  }
+  case object UpdateCity extends Privilege {
+    override val group: String = "CITY"
+    override val description: String = "Shaharni tahrirlash huquqi"
+  }
+  case object DeleteCity extends Privilege {
+    override val group: String = "CITY"
+    override val description: String = "Shaharni o'chirish huquqi"
+  }
+  case object ViewCities extends Privilege {
+    override val group: String = "CITY"
+    override val description: String = "Shaharlar ro'yxatini ko'rish huquqi"
+  }
+
   // Assets
   case object CreateAsset extends Privilege {
     override val group: String = "ASSETS"

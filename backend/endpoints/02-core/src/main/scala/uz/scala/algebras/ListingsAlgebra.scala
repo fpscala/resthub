@@ -3,7 +3,6 @@ package uz.scala.algebras
 import cats.effect.MonadCancelThrow
 import cats.implicits._
 import doobie.syntax.connectionio._
-import io.scalaland.chimney.dsl._
 import org.typelevel.log4cats.Logger
 
 import uz.scala.Language
@@ -101,7 +100,6 @@ object ListingsAlgebra {
       for {
         _ <- logger.info(s"Finding listing by id: $id")
 
-        now <- Calendar[F].currentZonedDateTime
         listingOpt <- listingsRepository.findById(id).transact(xa)
         listing <- listingOpt.fold(
           AError.BadRequest(LISTING_NOT_FOUND(lang)).raiseError[F, dto.Listing]

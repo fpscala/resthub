@@ -34,6 +34,7 @@ object HttpModule {
           env.algebras.telegramBot,
           env.botConfig.token,
         ),
+        new CitiesRoutes[F](env.algebras.cities),
         new RootRoutes[F](env.algebras.assets),
       )
       .map { r =>

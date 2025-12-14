@@ -1,14 +1,11 @@
 package uz.scala.routes
 
-import java.util.UUID
 
 import cats.MonadThrow
 import cats.implicits._
 import org.http4s.AuthedRoutes
 import org.http4s.HttpRoutes
-import org.http4s.QueryParamDecoder
 import org.http4s.circe.JsonDecoder
-import org.http4s.dsl.impl.OptionalQueryParamDecoderMatcher
 import org.typelevel.log4cats.Logger
 
 import uz.scala.Language

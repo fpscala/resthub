@@ -7,7 +7,6 @@ import org.http4s.AuthedRoutes
 import org.http4s.HttpRoutes
 import org.http4s.circe.JsonDecoder
 import org.http4s.dsl.impl.OptionalQueryParamDecoderMatcher
-import org.http4s.multipart.Multipart
 import org.typelevel.log4cats.Logger
 
 import uz.scala.aws.s3.S3Client
@@ -21,11 +20,6 @@ object KeyQueryParam extends OptionalQueryParamDecoderMatcher[String]("key")
 @JsonCodec
 case class PresignResponse(
     url: String, // Presigned PUT URL
-    publicUrl: String, // Final accessible URL
-  )
-
-@JsonCodec
-case class UploadResponse(
     publicUrl: String, // Final accessible URL
   )
 

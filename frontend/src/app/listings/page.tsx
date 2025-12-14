@@ -7,7 +7,9 @@ import { ListingCard } from '@/components/ListingCard';
 import { Pagination } from '@/components/Pagination';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
 import { ListingsQueryParams } from '@/types';
+import { useCities } from '@/hooks/useCities';
 
 /**
  * Listings page - browse all listings with filters and pagination
@@ -30,6 +32,7 @@ export default function ListingsPage() {
   const { data, isLoading, error } = useListings(filters);
 
   const totalPages = data ? Math.ceil(data.total / (filters.size || 12)) : 0;
+  const { data: cities, isLoading: citiesLoading } = useCities();
 
   const handlePageChange = (page: number) => {
     setFilters({ ...filters, page });
@@ -52,11 +55,15 @@ export default function ListingsPage() {
           className="rounded-lg border border-gray-200 bg-white p-6 shadow-card"
         >
           <div className="grid gap-4 md:grid-cols-4">
-            <Input
-              label="City"
-              placeholder="Filter by city"
+            <Select
+              label="Shahar"
               value={filters.city || ''}
               onChange={(e) => setFilters({ ...filters, city: e.target.value })}
+              options={(cities || []).map((city: string) => ({
+                value: city,
+                label: city || 'Barchasi'
+              }))}
+              disabled={citiesLoading}
             />
             <Input
               label="Min Price"

@@ -63,6 +63,8 @@ case class Environment[F[_]: Async: Logger: Random](
       config.frontend.baseUrl.value,
       config.frontend.activationPath.value,
       botApi,
+      config.telegram.token,
+      config.telegram.webhookUrl,
     )
   lazy val toServer: ServerEnvironment[F] =
     ServerEnvironment(
@@ -105,7 +107,7 @@ object Environment {
         appMiddleware = appMiddleware,
       )
       _ <- Resource.eval(env.algebras.assets.initializeBucket())
-      _ <- Resource.eval(env.algebras.telegramBot.setupWebhook(config.telegram.webhookUrl)).whenA(config.telegram.useWebhook)
+      _ <- Resource.eval(env.algebras.telegramBot.setupWebhook()).whenA(config.telegram.useWebhook)
 
     } yield env
 }

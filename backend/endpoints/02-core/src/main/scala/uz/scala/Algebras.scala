@@ -39,6 +39,8 @@ object Algebras {
       frontendBaseUrl: String,
       activationPath: String,
       botApi: telegramium.bots.high.Api[F],
+      botToken: String,
+      webhookBaseUrl: String,
     )(implicit
       xa: Transactor[F],
       lifter: F ~> ConnectionIO,
@@ -57,6 +59,8 @@ object Algebras {
       repositories.telegramUsers,
       repositories.telegramSessions,
       listings,
+      botToken,
+      webhookBaseUrl,
     )
 
     Algebras[F](

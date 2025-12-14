@@ -27,7 +27,7 @@ import uz.scala.syntax.refined._
 
 trait TelegramBotAlgebra[F[_]] {
   def processUpdate(update: Update): F[Unit]
-  def setupWebhook(webhookUrl: String): F[Unit]
+  def setupWebhook(): F[Unit]
 }
 
 object TelegramBotAlgebra {
@@ -36,16 +36,20 @@ object TelegramBotAlgebra {
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
       listingsAlgebra: ListingsAlgebra[F],
+      botToken: String,
+      webhookBaseUrl: String,
     )(implicit
       xa: doobie.Transactor[F]
     ): TelegramBotAlgebra[F] =
-    new Impl[F](api, usersRepo, sessionsRepo, listingsAlgebra)
+    new Impl[F](api, usersRepo, sessionsRepo, listingsAlgebra, botToken, webhookBaseUrl)
 
   private class Impl[F[_]: MonadCancelThrow: Calendar: Logger](
       api: Api[F],
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
       listingsAlgebra: ListingsAlgebra[F],
+      botToken: String,
+      webhookBaseUrl: String,
     )(implicit
       xa: doobie.Transactor[F]
     ) extends TelegramBotAlgebra[F] {
@@ -278,14 +282,19 @@ object TelegramBotAlgebra {
         case _ => (None, None)
       }
 
-    override def setupWebhook(webhookUrl: String): F[Unit] =
+    override def setupWebhook(): F[Unit] = {
+      // Construct full webhook URL with token for security
+      // Example: https://api.yourdomain.com/bot/webhook/{token}
+      val fullWebhookUrl = s"$webhookBaseUrl/$botToken"
+
       for {
-        _ <- Logger[F].info(s"Setting up webhook for URL: $webhookUrl")
-        response <- Methods.setWebhook(url = webhookUrl).exec(api)
+        _ <- Logger[F].info(s"Setting up webhook for URL: $webhookBaseUrl/***")
+        response <- Methods.setWebhook(url = fullWebhookUrl).exec(api)
         _ <- if (response)
           Logger[F].info("Webhook setup successful")
         else
           Logger[F].error("Webhook setup failed")
       } yield ()
+    }
   }
 }

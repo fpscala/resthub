@@ -1,9 +1,9 @@
 package uz.scala.domain.enums
 
 import enumeratum._
-import enumeratum.EnumEntry.Snakecase
+import enumeratum.EnumEntry.UpperSnakecase
 
-sealed trait BotState extends EnumEntry with Snakecase
+sealed trait BotState extends EnumEntry with UpperSnakecase
 
 object BotState extends Enum[BotState] with CirceEnum[BotState] with DoobieEnum[BotState] {
   case object Idle extends BotState

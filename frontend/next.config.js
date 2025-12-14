@@ -10,7 +10,7 @@ const nextConfig = {
         pathname: '/**',
       },
       {
-        protocol: 'http',
+        protocol: 'https',
         hostname: 'minio.scala.uz',
         pathname: '/**',
       },
@@ -18,6 +18,7 @@ const nextConfig = {
   },
   experimental: {
     optimizePackageImports: ['react-hot-toast'],
+    serverComponentsExternalPackages: ['@aws-sdk/client-s3'],
   },
 };
 

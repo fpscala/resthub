@@ -1,8 +1,19 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { ApiError, RefreshTokenRequest, AuthTokens } from '@/types';
 import { getRefreshToken, setAuthTokens, removeAuthTokens } from './auth';
+import { getRuntimeConfig } from '@/hooks/useRuntimeConfig';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Get BASE_URL from runtime config or fallback to default
+let BASE_URL: string;
+
+// Try to get runtime config immediately
+try {
+  const config = getRuntimeConfig();
+  BASE_URL = config.NEXT_PUBLIC_API_URL;
+} catch {
+  // Fallback for SSR or initialization
+  BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+}
 
 // Flag to prevent multiple refresh attempts
 let isRefreshing = false;

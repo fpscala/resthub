@@ -1,6 +1,7 @@
 import { ImageUploadResult } from '@/types';
 import { validateImageFile } from '@/lib/utils';
 import { getAccessToken } from '@/lib/auth';
+import { getRuntimeConfig } from '@/hooks/useRuntimeConfig';
 
 export interface UploadProgress {
   fileIndex: number;
@@ -41,6 +42,9 @@ export async function uploadImage(
       };
     }
 
+    // Get runtime config for API URL
+    const config = getRuntimeConfig();
+
     // Upload file directly to backend
     const formData = new FormData();
     formData.append('file', file);
@@ -49,7 +53,7 @@ export async function uploadImage(
     const token = getAccessToken();
     console.log('Token exists:', !!token);
     console.log('Token length:', token ? token.length : 0);
-    console.log('API URL:', process.env.NEXT_PUBLIC_API_URL);
+    console.log('API URL:', config.NEXT_PUBLIC_API_URL);
 
     // Use XMLHttpRequest for progress tracking
     const response = await new Promise<string>((resolve, reject) => {
@@ -91,8 +95,8 @@ export async function uploadImage(
       });
 
       // Open and send request
-      xhr.open('POST', `${process.env.NEXT_PUBLIC_API_URL}/upload`);
-      console.log('Opening request to:', `${process.env.NEXT_PUBLIC_API_URL}/upload`);
+      xhr.open('POST', `${config.NEXT_PUBLIC_API_URL}/upload`);
+      console.log('Opening request to:', `${config.NEXT_PUBLIC_API_URL}/upload`);
 
       // Set headers after opening
       if (token) {

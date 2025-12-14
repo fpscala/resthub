@@ -28,7 +28,6 @@ lazy val `endpoints-core` =
     .in(file("02-core"))
     .settings(
       libraryDependencies ++=
-        Dependencies.io.github.apimorphism.telegramium.all ++
           Dependencies.org.apache.pdfbox.all ++
           Seq(
             dev.profunktor.`http4s-jwt-auth`

@@ -12,11 +12,10 @@ object DockerImagePlugin extends AutoPlugin {
     lazy val generateServiceImage: TaskKey[Unit] =
       taskKey[Unit]("Generates an image with the native binary")
   }
-  val AppEnv: String = sys.env.getOrElse("APP_ENV", "staging")
 
   override def projectSettings: Seq[Def.Setting[?]] =
     Seq(
-      dockerBaseImage := "base-image:1.0",
+      dockerBaseImage := "fpscala/base-image:1.0",
       dockerExposedPorts ++= Seq(8000),
       dockerExposedUdpPorts += 4444,
       dockerUpdateLatest := true,
@@ -25,7 +24,7 @@ object DockerImagePlugin extends AutoPlugin {
 
   def serviceSetting(serviceName: String): Seq[Def.Setting[?]] =
     Seq(
-      Docker / packageName         := s"fpscala/shop-$serviceName-$AppEnv",
+      Docker / packageName         := s"fpscala/nesthub-$serviceName",
       packageDoc / publishArtifact := false,
       packageSrc / publishArtifact := true,
       publish / skip               := false,

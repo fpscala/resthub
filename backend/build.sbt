@@ -27,6 +27,7 @@ lazy val common =
           com.github.pureconfig.all ++
           com.beachape.enumeratum.all ++
           tf.tofu.derevo.all ++
+          Dependencies.io.github.apimorphism.telegramium.all ++
           Seq(
             uz.scala.common,
             org.typelevel.cats.core,

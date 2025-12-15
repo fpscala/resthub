@@ -13,7 +13,7 @@ const API_BASE_URL = '/api';
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
   timeout: 30000,
 });
@@ -109,16 +109,38 @@ export async function get<T>(url: string, params?: any): Promise<T> {
 /**
  * Generic POST request
  */
-export async function post<T>(url: string, data?: any): Promise<T> {
-  const response = await apiClient.post<T>(url, data);
+export async function post<T>(url: string, data?: any, options?: { headers?: Record<string, string> }): Promise<T> {
+  // If data is FormData, let axios set the Content-Type with the correct boundary
+  const isFormData = data instanceof FormData;
+
+  const config: any = {
+    headers: {
+      ...options?.headers,
+      // Set Content-Type for JSON data
+      ...(data && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+    },
+  };
+
+  const response = await apiClient.post<T>(url, data, config);
   return response.data;
 }
 
 /**
  * Generic PUT request
  */
-export async function put<T>(url: string, data?: any): Promise<T> {
-  const response = await apiClient.put<T>(url, data);
+export async function put<T>(url: string, data?: any, options?: { headers?: Record<string, string> }): Promise<T> {
+  // If data is FormData, let axios set the Content-Type with the correct boundary
+  const isFormData = data instanceof FormData;
+
+  const config: any = {
+    headers: {
+      ...options?.headers,
+      // Set Content-Type for JSON data
+      ...(data && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+    },
+  };
+
+  const response = await apiClient.put<T>(url, data, config);
   return response.data;
 }
 

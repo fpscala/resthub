@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const token = extractBearerToken(req.headers.get('cookie'));
+    const token = extractBearerToken(req.headers.get('cookie'), req.headers.get('authorization'));
 
     if (!token) {
       return NextResponse.json(
@@ -25,7 +25,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/s3/presign?key=${encodeURIComponent(key)}`, {
+    const backendUrl = `${serverConfig.backendApiUrl}/api/s3/presign?key=${encodeURIComponent(key)}`;
+    console.log('Calling backend S3 presign endpoint:', backendUrl);
+
+    const response = await fetch(backendUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -35,6 +38,8 @@ export async function GET(req: NextRequest) {
     });
 
     const responseText = await response.text();
+    console.log('Backend response status:', response.status);
+    console.log('Backend response body:', responseText);
 
     return new NextResponse(responseText, {
       status: response.status,

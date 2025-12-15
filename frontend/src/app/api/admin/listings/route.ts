@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const token = extractBearerToken(req.headers.get('cookie'));
+    const token = extractBearerToken(req.headers.get('cookie'), req.headers.get('authorization'));
 
     if (!token) {
       return NextResponse.json(

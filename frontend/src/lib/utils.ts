@@ -52,12 +52,12 @@ export function generateFileKey(filename: string): string {
  */
 export function validateImageFile(file: File): { valid: boolean; error?: string } {
   const maxSize = 5 * 1024 * 1024; // 5MB
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
 
   if (!allowedTypes.includes(file.type)) {
     return {
       valid: false,
-      error: 'Invalid file type. Only JPG, PNG, and WebP are allowed.',
+      error: 'Invalid file type. Only JPG and PNG are allowed.',
     };
   }
 

@@ -1,6 +1,6 @@
 import { ImageUploadResult } from '@/types';
 import { validateImageFile } from '@/lib/utils';
-import { get, uploadToPresignedUrl } from '@/lib/api-client';
+import { post } from '@/lib/api-client';
 
 export interface UploadProgress {
   fileIndex: number;
@@ -12,12 +12,12 @@ export interface UploadProgress {
 }
 
 /**
- * Upload single image using presigned URL flow
+ * Upload single image using multipart form data
  *
  * Steps:
- * 1. Request presigned URL from backend (GET /s3/presign?key=uploads/{uuid}.jpg)
- * 2. Upload file directly to S3/MinIO using PUT request
- * 3. Return public URL for the uploaded file
+ * 1. Create FormData with file and metadata
+ * 2. Send multipart request to backend (POST /upload)
+ * 3. Backend handles S3/MinIO upload and returns public URL
  *
  * @param file - Image file to upload
  * @param onProgress - Progress callback (0-100)
@@ -41,30 +41,45 @@ export async function uploadImage(
       };
     }
 
-    // Generate unique key for the file
-    const fileExtension = file.name.split('.').pop() || 'jpg';
-    const uniqueKey = `uploads/${crypto.randomUUID()}.${fileExtension}`;
+    // Create FormData for multipart upload
+    const formData = new FormData();
+    formData.append('file', file);
 
-    // Get presigned URL from backend
-    console.log('Requesting presigned URL for key:', uniqueKey);
-    const presignedResponse = await get<{ presignedUrl: string; publicUrl: string }>(
-      `/s3/presign?key=${encodeURIComponent(uniqueKey)}`
-    );
+    // Add optional type parameter if needed
+    formData.append('type', 'listing');
 
-    if (!presignedResponse.presignedUrl) {
-      throw new Error('Failed to get presigned URL');
+    try {
+      // Upload file via multipart to backend
+      console.log('Uploading file to backend via multipart');
+      console.log('FormData contents:');
+      for (const [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`  ${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
+        } else {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
+
+      // Upload via multipart - let axios set the proper Content-Type with boundary
+      const response = await post<{ publicUrl: string }>('/upload', formData);
+
+      console.log('Upload response:', response);
+
+      if (!response.publicUrl) {
+        console.error('Invalid response from upload endpoint:', response);
+        throw new Error('Upload succeeded but no public URL returned');
+      }
+
+      // Return public URL
+      console.log('Upload successful, URL:', response.publicUrl);
+      return {
+        publicUrl: response.publicUrl,
+        success: true,
+      };
+    } catch (error: any) {
+      console.error('Multipart upload failed:', error);
+      throw new Error(`Upload failed: ${error.message}`);
     }
-
-    // Upload file to S3/MinIO using presigned URL
-    console.log('Uploading file to presigned URL');
-    await uploadToPresignedUrl(presignedResponse.presignedUrl, file, onProgress);
-
-    // Return public URL
-    console.log('Upload successful, URL:', presignedResponse.publicUrl);
-    return {
-      publicUrl: presignedResponse.publicUrl,
-      success: true,
-    };
   } catch (error: any) {
     console.error('Upload error:', error);
     return {

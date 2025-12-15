@@ -1,5 +1,6 @@
 package uz.scala.repos.sql
 
+import cats.implicits.catsSyntaxOptionId
 import doobie._
 import doobie.implicits._
 
@@ -8,7 +9,7 @@ import uz.scala.doobie.Sql
 import uz.scala.doobie.syntax.all._
 import uz.scala.repos.dto.City
 
-object CitiesSql extends Sql[City] {
+object CitiesSql extends Sql[City]("cities".some) {
   def findAll: Query0[City] =
     sql"""SELECT $columns FROM $table WHERE is_active = true ORDER BY name ASC""".query[City]
 

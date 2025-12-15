@@ -1,7 +1,6 @@
 import { ImageUploadResult } from '@/types';
 import { validateImageFile } from '@/lib/utils';
-import { getAccessToken } from '@/lib/auth';
-import { getRuntimeConfig } from '@/hooks/useRuntimeConfig';
+import { get, uploadToPresignedUrl } from '@/lib/api-client';
 
 export interface UploadProgress {
   fileIndex: number;
@@ -42,78 +41,28 @@ export async function uploadImage(
       };
     }
 
-    // Get runtime config for API URL
-    const config = getRuntimeConfig();
+    // Generate unique key for the file
+    const fileExtension = file.name.split('.').pop() || 'jpg';
+    const uniqueKey = `uploads/${crypto.randomUUID()}.${fileExtension}`;
 
-    // Upload file directly to backend
-    const formData = new FormData();
-    formData.append('file', file);
+    // Get presigned URL from backend
+    console.log('Requesting presigned URL for key:', uniqueKey);
+    const presignedResponse = await get<{ presignedUrl: string; publicUrl: string }>(
+      `/s3/presign?key=${encodeURIComponent(uniqueKey)}`
+    );
 
-    // Get and log token
-    const token = getAccessToken();
-    console.log('Token exists:', !!token);
-    console.log('Token length:', token ? token.length : 0);
-    console.log('API URL:', config.NEXT_PUBLIC_API_URL);
+    if (!presignedResponse.presignedUrl) {
+      throw new Error('Failed to get presigned URL');
+    }
 
-    // Use XMLHttpRequest for progress tracking
-    const response = await new Promise<string>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-
-      // Track upload progress
-      if (onProgress) {
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const progress = Math.round((event.loaded / event.total) * 100);
-            console.log('Upload progress:', progress + '%');
-            onProgress(progress);
-          }
-        });
-      }
-
-      xhr.addEventListener('load', () => {
-        console.log('XHR status:', xhr.status);
-        console.log('XHR response:', xhr.responseText);
-
-        if (xhr.status === 201) {
-          try {
-            const result = JSON.parse(xhr.responseText);
-            console.log('Parsed result:', result);
-            resolve(result.publicUrl);
-          } catch (e) {
-            console.error('JSON parse error:', e);
-            reject(new Error('Invalid response format'));
-          }
-        } else {
-          console.error('Upload failed with status:', xhr.status);
-          reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.responseText}`));
-        }
-      });
-
-      xhr.addEventListener('error', (error) => {
-        console.error('XHR error:', error);
-        reject(new Error('Upload failed'));
-      });
-
-      // Open and send request
-      xhr.open('POST', `${config.NEXT_PUBLIC_API_URL}/upload`);
-      console.log('Opening request to:', `${config.NEXT_PUBLIC_API_URL}/upload`);
-
-      // Set headers after opening
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        console.log('Authorization header set');
-      } else {
-        console.warn('No token found, proceeding without auth');
-      }
-
-      console.log('Sending request...');
-      xhr.send(formData);
-    });
+    // Upload file to S3/MinIO using presigned URL
+    console.log('Uploading file to presigned URL');
+    await uploadToPresignedUrl(presignedResponse.presignedUrl, file, onProgress);
 
     // Return public URL
-    console.log('Upload successful, URL:', response);
+    console.log('Upload successful, URL:', presignedResponse.publicUrl);
     return {
-      publicUrl: response,
+      publicUrl: presignedResponse.publicUrl,
       success: true,
     };
   } catch (error: any) {

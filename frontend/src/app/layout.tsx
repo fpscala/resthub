@@ -19,9 +19,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <head>
-        <script src="/runtime-config.js" async></script>
-      </head>
       <body className={inter.className}>
         <Providers>
           <div className="flex min-h-screen flex-col">

@@ -15,10 +15,17 @@ const nextConfig = {
         pathname: '/**',
       },
     ],
+    // Disable image optimization in standalone mode to avoid sharp dependency issues
+    unoptimized: true,
   },
   experimental: {
     optimizePackageImports: ['react-hot-toast'],
     serverComponentsExternalPackages: ['@aws-sdk/client-s3'],
+  },
+  logging: {
+    fetches: {
+      fullUrl: true,
+    },
   },
 };
 

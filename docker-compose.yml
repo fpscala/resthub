@@ -87,13 +87,20 @@ services:
     container_name: frontend
     hostname: frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://nest.scala.uz/api
+      BACKEND_API_URL: http://endpoints:8000/api
       NEXT_PUBLIC_S3_BUCKET_URL: http://minio.scala.uz
+      NODE_ENV: production
+      LOG_LEVEL: info
     depends_on:
       - backend-api
     networks:
       - nesthub-network
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s

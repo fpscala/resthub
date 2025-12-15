@@ -1,20 +1,24 @@
 #!/bin/sh
 
 # Set default values if environment variables are not set
-export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8080}"
+export BACKEND_API_URL="${BACKEND_API_URL:-http://localhost:8080}"
 export NEXT_PUBLIC_S3_BUCKET_URL="${NEXT_PUBLIC_S3_BUCKET_URL:-http://localhost:9000}"
+export NODE_ENV="${NODE_ENV:-production}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
 
-echo "=== Runtime Configuration ==="
-echo "NEXT_PUBLIC_API_URL: $NEXT_PUBLIC_API_URL"
+echo "=== Server Configuration ==="
+echo "BACKEND_API_URL: $BACKEND_API_URL"
 echo "NEXT_PUBLIC_S3_BUCKET_URL: $NEXT_PUBLIC_S3_BUCKET_URL"
-echo "==========================="
+echo "NODE_ENV: $NODE_ENV"
+echo "LOG_LEVEL: $LOG_LEVEL"
+echo "PORT: ${PORT:-3000}"
+echo "=========================="
 
-# Substitute environment variables in runtime-config.js
-envsubst < /app/public/runtime-config.js.template > /app/public/runtime-config.js
+# Log startup
+echo "[$(date)] Starting Next.js application..."
 
-echo "Generated runtime-config.js:"
-cat /app/public/runtime-config.js
-echo "==========================="
+# No runtime-config.js needed anymore - using server-side only environment variables
 
-# Execute the original command
+# Execute the original command with logging
+echo "[$(date)] Executing: $@"
 exec "$@"

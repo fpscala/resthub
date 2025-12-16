@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { isValidEmail } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 /**
  * Register page
@@ -17,7 +19,8 @@ import { isValidEmail } from '@/lib/utils';
  * - Auto-redirect on success
  */
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { login, isLoading } = useAuth();
+  const router = useRouter();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -68,13 +71,35 @@ export default function RegisterPage() {
 
     if (!validate()) return;
 
-    await register.mutateAsync({
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      phone: formData.phone,
-      email: formData.email,
-      password: formData.password,
-    });
+    try {
+      // Register user via API
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          phone: formData.phone,
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Registration failed');
+      }
+
+      // After successful registration, log the user in
+      await login(formData.email, formData.password);
+      toast.success('Account created successfully!');
+      router.push('/');
+      router.refresh();
+    } catch (error: any) {
+      toast.error(error.message || 'Registration failed');
+    }
   };
 
   return (
@@ -153,8 +178,8 @@ export default function RegisterPage() {
           <Button
             type="submit"
             className="w-full"
-            isLoading={register.isPending}
-            disabled={register.isPending}
+            isLoading={isLoading}
+            disabled={isLoading}
           >
             Create Account
           </Button>

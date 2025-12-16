@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { isValidEmail } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 /**
  * Login page
@@ -16,7 +18,8 @@ import { isValidEmail } from '@/lib/utils';
  * - Auto-redirect on success
  */
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, isLoading } = useAuth();
+  const router = useRouter();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -47,7 +50,14 @@ export default function LoginPage() {
 
     if (!validate()) return;
 
-    await login.mutateAsync(formData);
+    try {
+      await login(formData.email, formData.password);
+      toast.success('Login successful!');
+      router.push('/');
+      router.refresh();
+    } catch (error: any) {
+      toast.error(error.message || 'Login failed');
+    }
   };
 
   return (
@@ -84,8 +94,8 @@ export default function LoginPage() {
           <Button
             type="submit"
             className="w-full"
-            isLoading={login.isPending}
-            disabled={login.isPending}
+            isLoading={isLoading}
+            disabled={isLoading}
           >
             Sign In
           </Button>

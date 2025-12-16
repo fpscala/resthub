@@ -1,19 +1,47 @@
 'use client';
 
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import toast from 'react-hot-toast';
 
 /**
  * Navigation bar with auth-aware menu
  */
 export function Navbar() {
-  const { user, isAuthenticated, logout, isAdmin } = useAuth();
+  const { user, isAuthenticated, logout, isAdmin, isLoading } = useAuth();
   const pathname = usePathname();
 
   const isActive = (path: string) => pathname === path;
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast.success('Logged out successfully');
+    } catch (error) {
+      toast.error('Failed to logout');
+    }
+  };
+
+  // Show loading state while auth is initializing
+  if (isLoading) {
+    return (
+      <nav className="border-b border-gray-200 bg-white shadow-sm">
+        <div className="container-custom">
+          <div className="flex h-16 items-center justify-between">
+            <Link href="/" className="text-2xl font-bold text-primary-600">
+              NestHub
+            </Link>
+            <div className="animate-pulse">
+              <div className="h-8 w-32 bg-gray-200 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <nav className="border-b border-gray-200 bg-white shadow-sm">
@@ -71,7 +99,7 @@ export function Navbar() {
 
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-gray-600">Hello, {user?.firstName}</span>
-                  <Button variant="secondary" onClick={logout} className="text-sm">
+                  <Button variant="secondary" onClick={handleLogout} className="text-sm">
                     Logout
                   </Button>
                 </div>

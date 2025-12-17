@@ -363,6 +363,18 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Iltimos, to'g'ri kanal ID sini kiriting:",
   )
 
+  val ERROR_BROKER_FEATURE_IN_BUYER_MODE: Map[Language, String] = Map(
+    En -> "❌ This feature is only available in Broker mode!\n\nSwitch to Broker mode in Settings to post listings.",
+    Ru -> "❌ Эта функция доступна только в режиме Брокера!\n\nПереключитесь в режим Брокера в Настройках для размещения объявлений.",
+    Uz -> "❌ Bu funktsiya faqat Broker rejimida mavjud!\n\nE'lon joylash uchun Sozlamalarda Broker rejimiga o'ting."
+  )
+
+  val ERROR_BUYER_FEATURE_IN_BROKER_MODE: Map[Language, String] = Map(
+    En -> "❌ This feature is only available in Buyer mode!\n\nSwitch to Buyer mode in Settings to search properties.",
+    Ru -> "❌ Эта функция доступна только в режиме Покупателя!\n\nПереключитесь в режим Покупателя в Настройках для поиска недвижимости.",
+    Uz -> "❌ Bu funktsiya faqat Xaridor rejimida mavjud!\n\nUylarni qidirish uchun Sozlamalarda Xaridor rejimiga o'ting."
+  )
+
   val PROMPT_CONFIRM_YES_NO: Map[Language, String] = Map(
     En -> "Please answer 'yes' or 'no':",
     Ru -> "Пожалуйста, ответьте 'да' или 'нет':",
@@ -398,6 +410,92 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     En -> "💰 Maximum price (USD):",
     Ru -> "💰 Максимальная цена (USD):",
     Uz -> "💰 Maksimal narx (USD):"
+  )
+
+  // Help messages
+  val HELP_HEADER: Map[Language, String] = Map(
+    En -> "🤖 NestHub Bot Help",
+    Ru -> "🤖 Помощь бота NestHub",
+    Uz -> "🤖 NestHub Bot yordami"
+  )
+
+  val HELP_SEARCH_SECTION: Map[Language, String] = Map(
+    En -> "🔍 **To search:**",
+    Ru -> "🔍 **Для поиска:**",
+    Uz -> "🔍 **Qidirish uchun:**"
+  )
+
+  val HELP_SEARCH_STEPS: Map[Language, String] = Map(
+    En -> "• Press \"🔍 Search for homes\" button\n• Select or enter city\n• Set price range\n• Choose number of rooms (optional)",
+    Ru -> "• Нажмите \"🔍 Поиск жилья\"\n• Выберите или введите город\n• Укажите ценовой диапазон\n• Выберите количество комнат (опционально)",
+    Uz -> "• \"🔍 Uylarni qidirish\" tugmasini bosing\n• Shaharni tanlang yoki kiriting\n• Narx oralig'ini belgilang\n• Xonalar sonini tanlang (ixtiyoriy)"
+  )
+
+  val HELP_COMMANDS_SECTION: Map[Language, String] = Map(
+    En -> "📱 **Other commands:**",
+    Ru -> "📱 **Другие команды:**",
+    Uz -> "📱 **Boshqa buyruqlar:**"
+  )
+
+  val HELP_COMMANDS_LIST: Map[Language, String] = Map(
+    En -> "/start - Main menu\n/search - New search\n💡 You can always use inline buttons!",
+    Ru -> "/start - Главное меню\n/search - Новый поиск\n💡 Вы всегда можете использовать интерактивные кнопки!",
+    Uz -> "/start - Bosh menyu\n/search - Yangi qidirish\n💡 Siz har doim inline tugmalardan foydalanishingiz mumkin!"
+  )
+
+  val HELP_CONTACT: Map[Language, String] = Map(
+    En -> "❓ If you have questions, contact admin!",
+    Ru -> "❓ Если есть вопросы, свяжитесь с администратором!",
+    Uz -> "❓ Savollaringiz bo'lsa, admin bilan bog'laning!"
+  )
+
+  // Mode selection messages
+  val MODE_SELECTION_PROMPT: Map[Language, String] = Map(
+    En -> "Qaysi rejimda foydalanmoqchisiz?",
+    Ru -> "В каком режиме вы хотите работать?",
+    Uz -> "Qaysi rejimda foydalanmoqchisiz?"
+  )
+
+  val BUYER_MODE_DESCRIPTION: Map[Language, String] = Map(
+    En -> "🏠 Xaridor (E'lon qidirish)",
+    Ru -> "🏠 Покупатель (Поиск объявлений)",
+    Uz -> "🏠 Xaridor (E'lon qidirish)"
+  )
+
+  val BROKER_MODE_DESCRIPTION: Map[Language, String] = Map(
+    En -> "🏢 Makler (E'lon joylash)",
+    Ru -> "🏢 Брокер (Размещение объявлений)",
+    Uz -> "🏢 Makler (E'lon joylash)"
+  )
+
+  val CURRENT_MODE: Map[Language, String] = Map(
+    En -> "🎯 Current mode:",
+    Ru -> "🎯 Текущий режим:",
+    Uz -> "🎯 Hozirgi rejim:",
+  )
+
+  val MODE_CHANGED_SUCCESSFULLY: Map[Language, String] = Map(
+    En -> "✅ Rejim muvaffaqiyatli o'zgartirildi!",
+    Ru -> "✅ Режим успешно изменен!",
+    Uz -> "✅ Rejim muvaffaqiyatli o'zgartirildi!"
+  )
+
+  val SETTINGS_MENU: Map[Language, String] = Map(
+    En -> "⚙️ Settings",
+    Ru -> "⚙️ Настройки",
+    Uz -> "⚙️ Sozlamalar"
+  )
+
+  val CHANGE_MODE: Map[Language, String] = Map(
+    En -> "🔄 Rejimni o'zgartirish",
+    Ru -> "🔄 Изменить режим",
+    Uz -> "🔄 Rejimni o'zgartirish"
+  )
+
+  val CHANGE_LANGUAGE: Map[Language, String] = Map(
+    En -> "🌐 Tilni o'zgartirish",
+    Ru -> "🌐 Изменить язык",
+    Uz -> "🌐 Tilni o'zgartirish"
   )
 
   def searchResultsHeader(count: Long, lang: Language): String =

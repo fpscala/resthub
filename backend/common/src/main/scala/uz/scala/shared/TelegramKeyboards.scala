@@ -5,8 +5,136 @@ import telegramium.bots.InlineKeyboardMarkup
 
 import uz.scala.Language
 import uz.scala.Language._
+import uz.scala.shared.BotMessages
 
 object TelegramKeyboards {
+  // Main menu keyboard for /start command
+  def mainMenuKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (searchText, helpText, settingsText) = language match {
+      case Uz =>
+        ("🔍 Uylarni qidirish", "ℹ️ Yordam", "⚙️ Sozlamalar")
+      case Ru =>
+        ("🔍 Поиск жилья", "ℹ️ Помощь", "⚙️ Настройки")
+      case En => // English by default
+        ("🔍 Search for homes", "ℹ️ Help", "⚙️ Settings")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(searchText, callbackData = Some("start_search"))
+      ),
+      List(
+        InlineKeyboardButton(helpText, callbackData = Some("show_help")),
+        InlineKeyboardButton(settingsText, callbackData = Some("open_settings"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Mode selection keyboard
+  def modeSelectionKeyboard(language: Language): InlineKeyboardMarkup = {
+    val buyerModeText = BotMessages.BUYER_MODE_DESCRIPTION(language)
+    val brokerModeText = BotMessages.BROKER_MODE_DESCRIPTION(language)
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(buyerModeText, callbackData = Some("select_buyer_mode"))
+      ),
+      List(
+        InlineKeyboardButton(brokerModeText, callbackData = Some("select_broker_mode"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Settings keyboard
+  def settingsKeyboard(language: Language): InlineKeyboardMarkup = {
+    val changeModeText = BotMessages.CHANGE_MODE(language)
+    val changeLanguageText = BotMessages.CHANGE_LANGUAGE(language)
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(changeModeText, callbackData = Some("change_mode"))
+      ),
+      List(
+        InlineKeyboardButton(changeLanguageText, callbackData = Some("change_language"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Quick actions keyboard (shown during search process)
+  def quickActionsKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (newSearch, help, backToMenu) = language match {
+      case Uz =>
+        ("🔄 Qayta qidirish", "ℹ️ Yordam", "🏠 Bosh menyu")
+      case Ru =>
+        ("🔄 Новый поиск", "ℹ️ Помощь", "🏠 Главное меню")
+      case En => // English by default
+        ("🔄 New search", "ℹ️ Help", "🏠 Main menu")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(newSearch, callbackData = Some("new_search"))
+      ),
+      List(
+        InlineKeyboardButton(help, callbackData = Some("show_help")),
+        InlineKeyboardButton(backToMenu, callbackData = Some("back_to_menu"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Mode-specific keyboards
+  def buyerModeKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (searchText, settingsText) = language match {
+      case Uz =>
+        ("🔍 Uylarni qidirish", "⚙️ Sozlamalar")
+      case Ru =>
+        ("🔍 Поиск жилья", "⚙️ Настройки")
+      case En =>
+        ("🔍 Search for homes", "⚙️ Settings")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(searchText, callbackData = Some("start_search"))
+      ),
+      List(
+        InlineKeyboardButton(settingsText, callbackData = Some("open_settings"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  def brokerModeKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (postText, settingsText) = language match {
+      case Uz =>
+        ("📝 E'lon joylash", "⚙️ Sozlamalar")
+      case Ru =>
+        ("📝 Разместить объявление", "⚙️ Настройки")
+      case En =>
+        ("📝 Post listing", "⚙️ Settings")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(postText, callbackData = Some("admin_post"))
+      ),
+      List(
+        InlineKeyboardButton(settingsText, callbackData = Some("open_settings"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
   // City selection keyboard
   def citySelectionKeyboard(language: Language): InlineKeyboardMarkup = {
     val (cities, otherCity) = language match {

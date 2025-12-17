@@ -16,12 +16,14 @@ import telegramium.bots.high.Methods
 import telegramium.bots.high.implicits._
 
 import uz.scala.Language
+import uz.scala.domain.enums.BotMode
 import uz.scala.domain.enums.BotState
 import uz.scala.domain.enums.ListingStatus
 import uz.scala.domain.enums.ListingType
 import uz.scala.domain.listings.ListingFilters
 import uz.scala.domain.listings.ListingOutput
 import uz.scala.domain.telegram.AdminPostingContext
+import uz.scala.domain.telegram.BotContext
 import uz.scala.domain.telegram.ForwardedMessage
 import uz.scala.domain.telegram.SearchContext
 import uz.scala.effects.Calendar
@@ -34,6 +36,7 @@ import uz.scala.shared.BotMessages
 import uz.scala.shared.BotMessages.LISTING_PREVIEW_HEADER
 import uz.scala.shared.TelegramKeyboards
 import uz.scala.syntax.all.circeSyntaxJsonDecoderOps
+import uz.scala.syntax.option._
 import uz.scala.syntax.refined._
 import uz.scala.utils.ID
 
@@ -203,6 +206,20 @@ object TelegramBotAlgebra {
         case "save" => handleSaveAction(msg, user)
         case "next" => handleNextListing(msg, user)
 
+        // Main menu actions
+        case "start_search" => handleSearchCommand(msg, user)
+        case "show_help" => handleHelpCommand(msg, user)
+        case "back_to_menu" => handleStartCommand(msg, user)
+
+        // Mode selection actions
+        case "select_buyer_mode" => handleSelectBuyerMode(msg, user)
+        case "select_broker_mode" => handleSelectBrokerMode(msg, user)
+
+        // Settings actions
+        case "open_settings" => handleOpenSettings(msg, user)
+        case "change_mode" => handleChangeMode(msg, user)
+        case "change_language" => handleChangeLanguage(msg, user)
+
         // Admin posting actions
         case "admin_post_confirm" => handleAdminPostConfirm(msg, user)
         case "admin_post_cancel" => handleAdminPostCancel(msg, user)
@@ -259,53 +276,167 @@ object TelegramBotAlgebra {
         }
       } yield session
 
-    private def handleStartCommand(msg: Message, user: dto.TelegramUser): F[Unit] = {
-      val welcomeText = BotMessages.WELCOME_NEW(user.languageCode)
+    private def handleStartCommand(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        // Check if user already has a mode selected
+        session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
+        botContext <- session.flatMap(_.context).traverse(_.decodeAsF[F, BotContext])
+
+        _ <- botContext match {
+          case Some(context) =>
+            // User already has a mode, show appropriate main menu
+            val modeText = context.mode match {
+              case BotMode.Buyer => BotMessages.BUYER_MODE_DESCRIPTION(user.languageCode)
+              case BotMode.Broker => BotMessages.BROKER_MODE_DESCRIPTION(user.languageCode)
+            }
+
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text =
+                  s"${BotMessages.WELCOME_NEW(user.languageCode)}\n\n${BotMessages.CURRENT_MODE(user.languageCode)} $modeText",
+                replyMarkup = Some(getModeSpecificKeyboard(context.mode, user.languageCode)),
+              )
+              .exec(api)
+              .void
+          case None =>
+            // No mode selected, show mode selection
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = BotMessages.MODE_SELECTION_PROMPT(user.languageCode),
+                replyMarkup = Some(TelegramKeyboards.modeSelectionKeyboard(user.languageCode)),
+              )
+              .exec(api)
+              .void
+        }
+      } yield ()
+
+    // Helper method to get mode-specific keyboard
+    private def getModeSpecificKeyboard(mode: BotMode, language: Language): InlineKeyboardMarkup =
+      mode match {
+        case BotMode.Buyer => TelegramKeyboards.buyerModeKeyboard(language)
+        case BotMode.Broker => TelegramKeyboards.brokerModeKeyboard(language)
+      }
+
+    // Helper method to save mode to session context
+    private def saveModeToSession(telegramId: Long, mode: BotMode): F[Unit] = {
+      val context = BotContext(mode = mode)
+      sessionsRepo
+        .updateState(telegramId, BotState.Idle, Some(context.asJson))
+        .transact(xa)
+        .void
+    }
+
+    private def handleSelectBuyerMode(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        _ <- saveModeToSession(user.telegramId, BotMode.Buyer)
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.MODE_CHANGED_SUCCESSFULLY(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.buyerModeKeyboard(user.languageCode)),
+          )
+          .exec(api)
+          .void
+      } yield ()
+
+    private def handleSelectBrokerMode(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        _ <- saveModeToSession(user.telegramId, BotMode.Broker)
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.MODE_CHANGED_SUCCESSFULLY(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.brokerModeKeyboard(user.languageCode)),
+          )
+          .exec(api)
+          .void
+      } yield ()
+
+    private def handleOpenSettings(msg: Message, user: dto.TelegramUser): F[Unit] =
+      Methods
+        .sendMessage(
+          chatId = ChatIntId(msg.chat.id),
+          text = BotMessages.SETTINGS_MENU(user.languageCode),
+          replyMarkup = Some(TelegramKeyboards.settingsKeyboard(user.languageCode)),
+        )
+        .exec(api)
+        .void
+
+    private def handleChangeMode(msg: Message, user: dto.TelegramUser): F[Unit] =
+      Methods
+        .sendMessage(
+          chatId = ChatIntId(msg.chat.id),
+          text = BotMessages.MODE_SELECTION_PROMPT(user.languageCode),
+          replyMarkup = Some(TelegramKeyboards.modeSelectionKeyboard(user.languageCode)),
+        )
+        .exec(api)
+        .void
+
+    private def handleChangeLanguage(msg: Message, user: dto.TelegramUser): F[Unit] =
+      // TODO: Implement language change functionality
+      Methods
+        .sendMessage(
+          chatId = ChatIntId(msg.chat.id),
+          text = "Tilni o'zgartirish tez orada mavjud bo'ladi",
+        )
+        .exec(api)
+        .void
+
+    private def handleHelpCommand(msg: Message, user: dto.TelegramUser): F[Unit] = {
+      val helpText = s"""${BotMessages.HELP_HEADER(user.languageCode)}
+                     |
+                     |${BotMessages.HELP_SEARCH_SECTION(user.languageCode)}
+                     |${BotMessages.HELP_SEARCH_STEPS(user.languageCode)}
+                     |
+                     |${BotMessages.HELP_COMMANDS_SECTION(user.languageCode)}
+                     |${BotMessages.HELP_COMMANDS_LIST(user.languageCode)}
+                     |
+                     |${BotMessages.HELP_CONTACT(user.languageCode)}""".stripMargin
 
       Methods
         .sendMessage(
           chatId = ChatIntId(msg.chat.id),
-          text = welcomeText,
+          text = helpText,
+          replyMarkup = Some(TelegramKeyboards.mainMenuKeyboard(user.languageCode)),
         )
         .exec(api)
         .void
     }
 
     private def handleSearchCommand(msg: Message, user: dto.TelegramUser): F[Unit] =
-      for {
-        // Update session state to AwaitingCity
-        _ <- sessionsRepo
-          .updateState(user.telegramId, BotState.AwaitingCity, None)
-          .transact(xa)
+      checkUserMode(
+        user.telegramId,
+        BotMode.Buyer,
+        for {
+          // Update session state to AwaitingCity
+          _ <- sessionsRepo
+            .updateState(user.telegramId, BotState.AwaitingCity, None)
+            .transact(xa)
 
-        // Get cities from database
-        cities <- citiesAlgebra.getAll
+          // Get cities from database
+          cities <- citiesAlgebra.getAll
 
-        // Create dynamic keyboard from cities
-        cityKeyboard = createDynamicCityKeyboard(cities, user.languageCode)
+          // Create dynamic keyboard from cities with quick actions
+          cityKeyboard = createDynamicCityKeyboard(cities, user.languageCode)
+          quickKeyboard = TelegramKeyboards.quickActionsKeyboard(user.languageCode)
 
-        // Send city selection with inline keyboard
-        _ <- Methods
-          .sendMessage(
-            chatId = ChatIntId(msg.chat.id),
-            text = BotMessages.SELECT_CITY(user.languageCode),
-            replyMarkup = Some(cityKeyboard),
-          )
-          .exec(api)
-          .void
-      } yield ()
-
-    private def handleHelpCommand(msg: Message, user: dto.TelegramUser): F[Unit] = {
-      val helpText = BotMessages.WELCOME_NEW(user.languageCode)
-
-      Methods
-        .sendMessage(
-          chatId = ChatIntId(msg.chat.id),
-          text = helpText,
-        )
-        .exec(api)
-        .void
-    }
+          // Send city selection with inline keyboard
+          _ <- Methods
+            .sendMessage(
+              chatId = ChatIntId(msg.chat.id),
+              text = BotMessages.SELECT_CITY(user.languageCode),
+              replyMarkup = Some(
+                InlineKeyboardMarkup(
+                  cityKeyboard.inlineKeyboard ++ quickKeyboard.inlineKeyboard
+                )
+              ),
+            )
+            .exec(api)
+            .void
+        } yield (),
+      )
 
     private def handleStateBasedMessage(
         msg: Message,
@@ -355,11 +486,19 @@ object TelegramBotAlgebra {
           .transact(xa)
 
         // Send price selection with inline keyboard
+        // Create combined keyboard with price ranges and quick actions
+        priceKeyboard = TelegramKeyboards.priceRangeSelectionKeyboard(user.languageCode)
+        quickKeyboard = TelegramKeyboards.quickActionsKeyboard(user.languageCode)
+
         _ <- Methods
           .sendMessage(
             chatId = ChatIntId(msg.chat.id),
             text = BotMessages.SELECT_PRICE_RANGE(user.languageCode),
-            replyMarkup = Some(TelegramKeyboards.priceRangeSelectionKeyboard(user.languageCode)),
+            replyMarkup = Some(
+              InlineKeyboardMarkup(
+                priceKeyboard.inlineKeyboard ++ quickKeyboard.inlineKeyboard
+              )
+            ),
           )
           .exec(api)
           .void
@@ -842,138 +981,154 @@ object TelegramBotAlgebra {
     }
 
     private def handleAdminPostingCommand(msg: Message, user: dto.TelegramUser): F[Unit] =
-      Methods
-        .sendMessage(
-          chatId = ChatIntId(msg.chat.id),
-          text = BotMessages.ADMIN_POST_PROMPT(user.languageCode),
-        )
-        .exec(api)
-        .void
+      checkUserMode(
+        user.telegramId,
+        BotMode.Broker,
+        Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.ADMIN_POST_PROMPT(user.languageCode),
+          )
+          .exec(api)
+          .void,
+      )
 
     private def handleForwardedMessage(
         msg: Message,
         user: dto.TelegramUser,
         session: dto.TelegramSession,
       ): F[Unit] =
-      // Check if this is a forwarded message
-      msg.senderChat match {
-        case Some(chat) =>
-          // This is a forwarded message from a channel
-          val context = AdminPostingContext(
-            forwardedMessage = ForwardedMessage(
-              text = msg.text,
-              images = List.empty, // TODO: Extract images from forwarded message
-              originalAuthor = chat.title,
-            ),
-            listingType = None,
-            price = None,
-            city = None,
-            rooms = None,
-            phone = None,
-            district = None,
-            floor = None,
-            totalFloors = None,
-            buildingType = None,
-            condition = None,
-            selectedChannelId = Some(chat.id),
-            step = 1,
-          )
+      checkUserMode(
+        user.telegramId,
+        BotMode.Broker,
+        // Check if this is a forwarded message
+        msg.senderChat match {
+          case Some(chat) =>
+            // This is a forwarded message from a channel
+            val context = AdminPostingContext(
+              forwardedMessage = ForwardedMessage(
+                text = msg.text,
+                images = List.empty, // TODO: Extract images from forwarded message
+                originalAuthor = chat.title,
+              ),
+              listingType = None,
+              price = None,
+              city = None,
+              rooms = None,
+              phone = None,
+              district = None,
+              floor = None,
+              totalFloors = None,
+              buildingType = None,
+              condition = None,
+              selectedChannelId = Some(chat.id),
+              step = 1,
+            )
 
-          val confirmText = BotMessages.ADMIN_POST_CONFIRM(user.languageCode)
+            val confirmText = BotMessages.ADMIN_POST_CONFIRM(user.languageCode)
 
-          for {
-            _ <- sessionsRepo
-              .updateState(user.telegramId, BotState.Registering, Some(context.asJson))
-              .transact(xa)
-            _ <- Methods
-              .sendMessage(
-                chatId = ChatIntId(msg.chat.id),
-                text = confirmText,
-                replyMarkup = Some(
-                  InlineKeyboardMarkup(
-                    List(
+            for {
+              _ <- sessionsRepo
+                .updateState(user.telegramId, BotState.Registering, Some(context.asJson))
+                .transact(xa)
+              _ <- Methods
+                .sendMessage(
+                  chatId = ChatIntId(msg.chat.id),
+                  text = confirmText,
+                  replyMarkup = Some(
+                    InlineKeyboardMarkup(
                       List(
-                        InlineKeyboardButton(
-                          BotMessages.BUTTON_CONFIRM_POST(user.languageCode),
-                          callbackData = Some("admin_post_confirm"),
-                        ),
-                        InlineKeyboardButton(
-                          BotMessages.BUTTON_CANCEL_POST(user.languageCode),
-                          callbackData = Some("admin_post_cancel"),
-                        ),
+                        List(
+                          InlineKeyboardButton(
+                            BotMessages.BUTTON_CONFIRM_POST(user.languageCode),
+                            callbackData = Some("admin_post_confirm"),
+                          ),
+                          InlineKeyboardButton(
+                            BotMessages.BUTTON_CANCEL_POST(user.languageCode),
+                            callbackData = Some("admin_post_cancel"),
+                          ),
+                        )
                       )
                     )
-                  )
-                ),
-              )
-              .exec(api)
-              .void
-          } yield ()
-        case None =>
-          // Not a forwarded message, check if user is in admin posting flow
-          session.state match {
-            case BotState.Registering =>
-              Logger[F].debug("User is in admin posting flow but received non-forwarded message")
-            case _ =>
-              Logger[F].debug(s"Ignoring non-forwarded message from user ${user.telegramId}")
-          }
-      }
+                  ),
+                )
+                .exec(api)
+                .void
+            } yield ()
+          case None =>
+            // Not a forwarded message, check if user is in admin posting flow
+            session.state match {
+              case BotState.Registering =>
+                Logger[F].debug("User is in admin posting flow but received non-forwarded message")
+              case _ =>
+                Logger[F].debug(s"Ignoring non-forwarded message from user ${user.telegramId}")
+            }
+        },
+      )
 
     private def handleListingTypeInput(
         msg: Message,
         user: dto.TelegramUser,
         text: String,
-      ): F[Unit] = {
+      ): F[Unit] =
+      checkUserMode(
+        user.telegramId,
+        BotMode.Broker, {
 
-      val normalized = text.toLowerCase.trim
+          val normalized = text.toLowerCase.trim
 
-      val listingType = normalized match {
-        case s if s.contains("ijar") || s.contains("rent") || s.contains("аренд") =>
-          Some(ListingType.ForRent)
-        case s if s.contains("sotil") || s.contains("sale") || s.contains("прода") =>
-          Some(ListingType.ForSale)
-        case _ => None
-      }
+          val listingType = normalized match {
+            case s if s.contains("ijar") || s.contains("rent") || s.contains("аренд") =>
+              Some(ListingType.ForRent)
+            case s if s.contains("sotil") || s.contains("sale") || s.contains("прода") =>
+              Some(ListingType.ForSale)
+            case _ => None
+          }
 
-      listingType match {
-        case Some(lt) =>
-          updateAdminContextAndNextStep(
-            user.telegramId,
-            msg.chat.id,
-            _.copy(listingType = Some(lt), step = 2),
-            BotState.AwaitingPrice,
-            user.languageCode,
-          )
-        case None =>
-          val errorText = BotMessages.ERROR_INVALID_LISTING_TYPE(user.languageCode)
-          Methods
-            .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
-            .exec(api)
-            .void
-      }
-    }
+          listingType match {
+            case Some(lt) =>
+              updateAdminContextAndNextStep(
+                user.telegramId,
+                msg.chat.id,
+                _.copy(listingType = Some(lt), step = 2),
+                BotState.AwaitingPrice,
+                user.languageCode,
+              )
+            case None =>
+              val errorText = BotMessages.ERROR_INVALID_LISTING_TYPE(user.languageCode)
+              Methods
+                .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
+                .exec(api)
+                .void
+          }
+        },
+      )
 
     private def handlePriceInput(
         msg: Message,
         user: dto.TelegramUser,
         text: String,
       ): F[Unit] =
-      text.replaceAll("[^0-9.]", "").toDoubleOption match {
-        case Some(price) =>
-          updateAdminContextAndNextStep(
-            user.telegramId,
-            msg.chat.id,
-            _.copy(price = Some(BigDecimal(price)), step = 3),
-            BotState.AwaitingCityForPosting,
-            user.languageCode,
-          )
-        case None =>
-          val errorText = BotMessages.ERROR_INVALID_PRICE(user.languageCode)
-          Methods
-            .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
-            .exec(api)
-            .void
-      }
+      checkUserMode(
+        user.telegramId,
+        BotMode.Broker,
+        text.replaceAll("[^0-9.]", "").toDoubleOption match {
+          case Some(price) =>
+            updateAdminContextAndNextStep(
+              user.telegramId,
+              msg.chat.id,
+              _.copy(price = Some(BigDecimal(price)), step = 3),
+              BotState.AwaitingCityForPosting,
+              user.languageCode,
+            )
+          case None =>
+            val errorText = BotMessages.ERROR_INVALID_PRICE(user.languageCode)
+            Methods
+              .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
+              .exec(api)
+              .void
+        },
+      )
 
     private def handleCityForPostingInput(
         msg: Message,
@@ -1671,6 +1826,49 @@ object TelegramBotAlgebra {
          |
          |$confirmText""".stripMargin
     }
+
+    // Mode-based feature blocking helpers
+    private def checkUserMode(
+        telegramId: Long,
+        requiredMode: BotMode,
+        action: F[Unit],
+      )(implicit
+        xa: doobie.Transactor[F]
+      ): F[Unit] =
+      for {
+        currentMode <- getCurrentMode(telegramId)
+        _ <-
+          if (currentMode == requiredMode)
+            action
+          else
+            usersRepo.findByTelegramId(telegramId).transact(xa).flatMap {
+              case Some(userSession) =>
+                val lang = userSession.languageCode
+                val errorText =
+                  if (requiredMode == BotMode.Buyer)
+                    BotMessages.ERROR_BROKER_FEATURE_IN_BUYER_MODE(lang)
+                  else
+                    BotMessages.ERROR_BUYER_FEATURE_IN_BROKER_MODE(lang)
+                Methods
+                  .sendMessage(chatId = ChatIntId(telegramId), text = errorText)
+                  .exec(api)
+                  .void
+              case None =>
+                Logger[F].error(s"User session not found for telegramId: $telegramId").void
+            }
+      } yield ()
+
+    private def getCurrentMode(telegramId: Long)(implicit xa: doobie.Transactor[F]): F[BotMode] =
+      sessionsRepo
+        .findByTelegramId(telegramId)
+        .transact(xa)
+        .asOptionT
+        .subflatMap(_.context)
+        .foldF(
+          Logger[F]
+            .warn(s"No session found for telegramId: $telegramId, defaulting to Buyer mode")
+            .as[BotMode](BotMode.Buyer)
+        )(_.decodeAsF[F, BotContext].map(_.mode))
 
     override def setupWebhook(): F[Unit] = {
       val fullWebhookUrl = s"$webhookBaseUrl/$botToken"

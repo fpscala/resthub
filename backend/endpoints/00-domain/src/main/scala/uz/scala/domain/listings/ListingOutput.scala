@@ -9,6 +9,7 @@ import squants.Money
 
 import uz.scala.domain.ListingId
 import uz.scala.domain.enums.ListingStatus
+import uz.scala.domain.enums.ListingType
 import uz.scala.domain.users.User
 import uz.scala.syntax.circe._
 
@@ -20,7 +21,15 @@ case class ListingOutput(
     description: NonEmptyString,
     price: Money,
     city: NonEmptyString,
+    listingType: ListingType,
+    rooms: Option[Int],
+    district: Option[String],
+    floor: Option[Int],
+    totalFloors: Option[Int],
+    buildingType: Option[String],
+    condition: Option[String],
     images: List[String],
     status: ListingStatus,
     createdAt: ZonedDateTime,
+    updatedAt: ZonedDateTime,
   )

@@ -3,12 +3,13 @@ package uz.scala.repos.dto
 import java.time.ZonedDateTime
 
 import eu.timepit.refined.types.string.NonEmptyString
-import squants.market.Money
 import io.scalaland.chimney.dsl._
+import squants.market.Money
 
 import uz.scala.domain.ListingId
 import uz.scala.domain.UserId
 import uz.scala.domain.enums.ListingStatus
+import uz.scala.domain.enums.ListingType
 import uz.scala.domain.listings.ListingOutput
 
 case class Listing(
@@ -21,6 +22,13 @@ case class Listing(
     images: List[String],
     status: ListingStatus,
     rejectionReason: Option[String],
+    listingType: ListingType,
+    rooms: Option[Int],
+    district: Option[String],
+    floor: Option[Int],
+    totalFloors: Option[Int],
+    buildingType: Option[String],
+    condition: Option[String],
     createdAt: ZonedDateTime,
     updatedAt: ZonedDateTime,
     approvedAt: Option[ZonedDateTime],
@@ -30,7 +38,6 @@ case class Listing(
     this
       .into[ListingOutput]
       .withFieldConst(_.owner, owner)
-      .withFieldComputed(_.price, _.price)
       .transform
 }
 
@@ -41,8 +48,7 @@ object Listing {
       .withFieldComputed(_.ownerId, _.owner.id)
       .withFieldComputed(_.price, _.price)
       .withFieldComputed(_.rejectionReason, _ => None)
-      .withFieldComputed(_.updatedAt, _.createdAt)
-      .withFieldComputed(_.approvedAt, _ => None)
-      .withFieldComputed(_.approvedBy, _ => None)
+      .withFieldConst(_.approvedBy, None)
+      .withFieldConst(_.approvedAt, None)
       .transform
 }

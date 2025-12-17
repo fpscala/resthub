@@ -32,7 +32,7 @@ object Dependencies {
     lazy val `test-container` = "1.20.4"
     lazy val cron4s = "0.7.0"
     lazy val `fs2-cron4s` = "0.9.0"
-    lazy val uzscala = "1.0.18"
+    lazy val uzscala = "1.0.18-SNAPSHOT"
     lazy val mailer = "1.4.7"
     lazy val `fs2-kafka` = "3.0.1"
     lazy val telegramium = "10.902.0"

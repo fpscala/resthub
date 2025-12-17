@@ -69,6 +69,7 @@ object Algebras {
       botApi,
       repositories.telegramUsers,
       repositories.telegramSessions,
+      repositories.listings,
       listings,
       cities,
       botToken,

@@ -10,6 +10,7 @@ import uz.scala.domain.AuthedUser
 import uz.scala.domain.ListingId
 import uz.scala.domain.ResponseData
 import uz.scala.domain.enums.ListingStatus
+import uz.scala.domain.enums.ListingType
 import uz.scala.domain.listings._
 import uz.scala.effects.Calendar
 import uz.scala.effects.GenUUID
@@ -90,6 +91,13 @@ object ListingsAlgebra {
           updatedAt = now,
           approvedAt = None,
           approvedBy = None,
+          listingType = ListingType.ForRent,
+          rooms = None,
+          district = None,
+          floor = None,
+          totalFloors = None,
+          buildingType = None,
+          condition = None,
         )
 
         _ <- listingsRepository.create(listing).transact(xa)

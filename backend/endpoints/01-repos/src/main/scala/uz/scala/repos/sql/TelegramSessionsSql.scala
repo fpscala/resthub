@@ -2,7 +2,6 @@ package uz.scala.repos.sql
 
 import doobie._
 import doobie.implicits._
-import doobie.postgres.implicits._
 import doobie.postgres.circe.jsonb.implicits._
 import io.circe.Json
 
@@ -24,8 +23,19 @@ private[repos] object TelegramSessionsSql extends Sql[dto.TelegramSession] {
               updated_at = EXCLUDED.updated_at""".internals.sql
   )
 
-  def updateState(telegramId: Long, state: BotState, context: Option[Json]): Update0 =
+  def updateState(
+      telegramId: Long,
+      state: BotState,
+      context: Option[Json],
+    ): Update0 =
     sql"""UPDATE $table
           SET state = $state, context = $context, updated_at = NOW()
           WHERE telegram_id = $telegramId""".update
+
+  def update(session: dto.TelegramSession): Update0 =
+    sql"""UPDATE $table
+          SET state = ${session.state},
+           context = ${session.context},
+           updated_at = ${session.updatedAt}
+          WHERE telegram_id = ${session.telegramId}""".update
 }

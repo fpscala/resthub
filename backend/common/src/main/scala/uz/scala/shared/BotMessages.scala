@@ -474,8 +474,26 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "🎯 Hozirgi rejim:",
   )
 
+  val BUYER_HOME_WELCOME: Map[Language, String] = Map(
+    En -> "🏠 Welcome to NestHub Buyer Mode!\n\nFind your perfect home from thousands of listings.",
+    Ru -> "🏠 Добро пожаловать в NestHub Режим Покупателя!\n\nНайдите идеальный дом среди тысяч объявлений.",
+    Uz -> "🏠 NestHub Xaridor rejimiga xush kelibsiz!\n\nMinglab e'lonlar orasidan o'zingiz uchun mo'ljallangan uyni toping."
+  )
+
+  val BROKER_HOME_WELCOME: Map[Language, String] = Map(
+    En -> "🏢 Welcome to NestHub Broker Mode!\n\nPost and manage your property listings efficiently.",
+    Ru -> "🏢 Добро пожаловать в NestHub Режим Брокера!\n\nЭффективно размещайте и управляйте объявлениями о недвижимости.",
+    Uz -> "🏢 NestHub Makler rejimiga xush kelibsiz!\n\nKo'chmas mulk e'lonlarini samarali joylang va boshqaring."
+  )
+
+  val MODE_CHANGE_CONFIRM: Map[Language, String] = Map(
+    En -> "Are you sure you want to change mode?\n\nThis will reset your current session and you'll need to select a new mode.",
+    Ru -> "Вы уверены, что хотите изменить режим?\n\nЭто сбросит вашу текущую сессию, и вам нужно будет выбрать новый режим.",
+    Uz -> "Rejimni o'zgartirmoqchimisiz?\n\nBu joriy sessiyangizni qayta tiklaydi va siz yangi rejimni tanlashingiz kerak bo'ladi."
+  )
+
   val MODE_CHANGED_SUCCESSFULLY: Map[Language, String] = Map(
-    En -> "✅ Rejim muvaffaqiyatli o'zgartirildi!",
+    En -> "✅ Mode changed successfully!",
     Ru -> "✅ Режим успешно изменен!",
     Uz -> "✅ Rejim muvaffaqiyatli o'zgartirildi!"
   )
@@ -536,5 +554,11 @@ $priceIcon $$${price.toInt} $monthlyPer
 $roomsIcon $rooms $roomLabel
 $sizeStr$furnishedStr
 $contactIcon $contact"""
+  }
+
+  def searchContextRequired(language: Language): String = language match {
+    case Uz => "⚠️ Qidirish konteksti topilmadi. Iltimos, qidirishni qaytadan boshlang."
+    case Ru => "⚠️ Контекст поиска не найден. Пожалуйста, начните поиск заново."
+    case En => "⚠️ Search context not found. Please start a new search."
   }
 }

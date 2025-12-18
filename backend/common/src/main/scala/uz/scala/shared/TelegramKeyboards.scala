@@ -49,17 +49,36 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
-  // Settings keyboard
+  // Settings keyboard (language change disabled)
   def settingsKeyboard(language: Language): InlineKeyboardMarkup = {
     val changeModeText = BotMessages.CHANGE_MODE(language)
-    val changeLanguageText = BotMessages.CHANGE_LANGUAGE(language)
 
     val buttons = List(
       List(
         InlineKeyboardButton(changeModeText, callbackData = Some("change_mode"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Mode change confirmation keyboard
+  def modeChangeConfirmationKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (confirmText, cancelText) = language match {
+      case Uz =>
+        ("✅ Ha, o'zgartirish", "❌ Yo'q, bekor qilish")
+      case Ru =>
+        ("✅ Да, изменить", "❌ Нет, отменить")
+      case En =>
+        ("✅ Yes, change", "❌ No, cancel")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(confirmText, callbackData = Some("confirm_change_mode"))
       ),
       List(
-        InlineKeyboardButton(changeLanguageText, callbackData = Some("change_language"))
+        InlineKeyboardButton(cancelText, callbackData = Some("cancel_change_mode"))
       )
     )
 
@@ -90,50 +109,61 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
-  // Mode-specific keyboards
-  def buyerModeKeyboard(language: Language): InlineKeyboardMarkup = {
-    val (searchText, settingsText) = language match {
+  // Mode-specific home keyboards
+  def buyerHomeKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (searchByCity, settings) = language match {
       case Uz =>
-        ("🔍 Uylarni qidirish", "⚙️ Sozlamalar")
+        ("🏙️ Shahar bo'yicha qidirish", "⚙️ Sozlamalar")
       case Ru =>
-        ("🔍 Поиск жилья", "⚙️ Настройки")
+        ("🏙️ Поиск по городу", "⚙️ Настройки")
       case En =>
-        ("🔍 Search for homes", "⚙️ Settings")
+        ("🏙️ Search by city", "⚙️ Settings")
     }
 
     val buttons = List(
       List(
-        InlineKeyboardButton(searchText, callbackData = Some("start_search"))
+        InlineKeyboardButton(searchByCity, callbackData = Some("start_search"))
       ),
       List(
-        InlineKeyboardButton(settingsText, callbackData = Some("open_settings"))
+        InlineKeyboardButton(settings, callbackData = Some("open_settings"))
       )
     )
 
     InlineKeyboardMarkup(buttons)
   }
 
-  def brokerModeKeyboard(language: Language): InlineKeyboardMarkup = {
-    val (postText, settingsText) = language match {
+  def brokerHomeKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (createListing, manageDrafts, postToChannel, settings) = language match {
       case Uz =>
-        ("📝 E'lon joylash", "⚙️ Sozlamalar")
+        ("📝 Yangi e'lon", "📋 Qoralamalar", "📢 Kanalga joylash", "⚙️ Sozlamalar")
       case Ru =>
-        ("📝 Разместить объявление", "⚙️ Настройки")
+        ("📝 Новое объявление", "📋 Черновики", "📢 Разместить в канал", "⚙️ Настройки")
       case En =>
-        ("📝 Post listing", "⚙️ Settings")
+        ("📝 New listing", "📋 Manage drafts", "📢 Post to channel", "⚙️ Settings")
     }
 
     val buttons = List(
       List(
-        InlineKeyboardButton(postText, callbackData = Some("admin_post"))
+        InlineKeyboardButton(createListing, callbackData = Some("admin_post"))
       ),
       List(
-        InlineKeyboardButton(settingsText, callbackData = Some("open_settings"))
+        InlineKeyboardButton(manageDrafts, callbackData = Some("manage_drafts"))
+      ),
+      List(
+        InlineKeyboardButton(postToChannel, callbackData = Some("post_to_channel"))
+      ),
+      List(
+        InlineKeyboardButton(settings, callbackData = Some("open_settings"))
       )
     )
 
     InlineKeyboardMarkup(buttons)
   }
+
+  // Legacy keyboards for backward compatibility
+  def buyerModeKeyboard(language: Language): InlineKeyboardMarkup = buyerHomeKeyboard(language)
+
+  def brokerModeKeyboard(language: Language): InlineKeyboardMarkup = brokerHomeKeyboard(language)
 
   // City selection keyboard
   def citySelectionKeyboard(language: Language): InlineKeyboardMarkup = {

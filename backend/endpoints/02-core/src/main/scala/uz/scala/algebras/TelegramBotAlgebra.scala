@@ -2,6 +2,7 @@ package uz.scala.algebras
 
 import cats.effect.MonadCancelThrow
 import cats.implicits._
+import doobie.ConnectionIO
 import doobie.implicits._
 import io.circe.syntax._
 import org.typelevel.log4cats.Logger
@@ -151,9 +152,11 @@ object TelegramBotAlgebra {
           val city = cityData.stripPrefix("city_")
           if (city == "other")
             for {
-              _ <- sessionsRepo
-                .updateState(user.telegramId, BotState.AwaitingCustomCity, None)
-                .transact(xa)
+              _ <- updateStatePreservingContext(
+                user.telegramId,
+                BotState.AwaitingCustomCity,
+                user.languageCode,
+              )
               _ <- Methods
                 .sendMessage(
                   chatId = ChatIntId(msg.chat.id),
@@ -174,9 +177,11 @@ object TelegramBotAlgebra {
             case "1200_2000" => handlePriceSelection(msg, user, Some(1200), Some(2000))
             case "custom" =>
               for {
-                _ <- sessionsRepo
-                  .updateState(user.telegramId, BotState.AwaitingCustomPriceMin, None)
-                  .transact(xa)
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.AwaitingCustomPriceMin,
+                  user.languageCode,
+                )
                 _ <- Methods
                   .sendMessage(
                     chatId = ChatIntId(msg.chat.id),
@@ -218,6 +223,8 @@ object TelegramBotAlgebra {
         // Settings actions
         case "open_settings" => handleOpenSettings(msg, user)
         case "change_mode" => handleChangeMode(msg, user)
+        case "confirm_change_mode" => handleConfirmChangeMode(msg, user)
+        case "cancel_change_mode" => handleCancelChangeMode(msg, user)
         case "change_language" => handleChangeLanguage(msg, user)
 
         // Admin posting actions
@@ -284,18 +291,21 @@ object TelegramBotAlgebra {
 
         _ <- botContext match {
           case Some(context) =>
-            // User already has a mode, show appropriate main menu
-            val modeText = context.mode match {
-              case BotMode.Buyer => BotMessages.BUYER_MODE_DESCRIPTION(user.languageCode)
-              case BotMode.Broker => BotMessages.BROKER_MODE_DESCRIPTION(user.languageCode)
+            // User already has a mode, show appropriate home screen
+            val welcomeText = context.mode match {
+              case BotMode.Buyer => BotMessages.BUYER_HOME_WELCOME(user.languageCode)
+              case BotMode.Broker => BotMessages.BROKER_HOME_WELCOME(user.languageCode)
+            }
+            val keyboard = context.mode match {
+              case BotMode.Buyer => TelegramKeyboards.buyerHomeKeyboard(user.languageCode)
+              case BotMode.Broker => TelegramKeyboards.brokerHomeKeyboard(user.languageCode)
             }
 
             Methods
               .sendMessage(
                 chatId = ChatIntId(msg.chat.id),
-                text =
-                  s"${BotMessages.WELCOME_NEW(user.languageCode)}\n\n${BotMessages.CURRENT_MODE(user.languageCode)} $modeText",
-                replyMarkup = Some(getModeSpecificKeyboard(context.mode, user.languageCode)),
+                text = welcomeText,
+                replyMarkup = Some(keyboard),
               )
               .exec(api)
               .void
@@ -368,21 +378,94 @@ object TelegramBotAlgebra {
       Methods
         .sendMessage(
           chatId = ChatIntId(msg.chat.id),
-          text = BotMessages.MODE_SELECTION_PROMPT(user.languageCode),
-          replyMarkup = Some(TelegramKeyboards.modeSelectionKeyboard(user.languageCode)),
+          text = BotMessages.MODE_CHANGE_CONFIRM(user.languageCode),
+          replyMarkup = Some(TelegramKeyboards.modeChangeConfirmationKeyboard(user.languageCode)),
         )
         .exec(api)
         .void
 
     private def handleChangeLanguage(msg: Message, user: dto.TelegramUser): F[Unit] =
-      // TODO: Implement language change functionality
+      // Language change disabled - show message
       Methods
         .sendMessage(
           chatId = ChatIntId(msg.chat.id),
-          text = "Tilni o'zgartirish tez orada mavjud bo'ladi",
+          text = "Language change is currently disabled.",
         )
         .exec(api)
         .void
+
+    private def handleConfirmChangeMode(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        // Clear the session context (except telegram_id and reset state)
+        now <- Calendar[F].currentZonedDateTime
+        _ <- sessionsRepo
+          .upsert(
+            dto.TelegramSession(
+              telegramId = user.telegramId,
+              state = BotState.Idle,
+              context = None, // Clear mode completely
+              updatedAt = now,
+            )
+          )(user.languageCode)
+          .transact(xa)
+
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.MODE_CHANGED_SUCCESSFULLY(user.languageCode),
+          )
+          .exec(api)
+          .void
+
+        // Show mode selection again
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.MODE_SELECTION_PROMPT(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.modeSelectionKeyboard(user.languageCode)),
+          )
+          .exec(api)
+          .void
+      } yield ()
+
+    private def handleCancelChangeMode(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        // Get current session to show appropriate home screen
+        session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
+        botContext <- session.flatMap(_.context).traverse(_.decodeAsF[F, BotContext])
+
+        _ <- botContext match {
+          case Some(context) =>
+            // Show current mode home screen
+            val welcomeText = context.mode match {
+              case BotMode.Buyer => BotMessages.BUYER_HOME_WELCOME(user.languageCode)
+              case BotMode.Broker => BotMessages.BROKER_HOME_WELCOME(user.languageCode)
+            }
+            val keyboard = context.mode match {
+              case BotMode.Buyer => TelegramKeyboards.buyerHomeKeyboard(user.languageCode)
+              case BotMode.Broker => TelegramKeyboards.brokerHomeKeyboard(user.languageCode)
+            }
+
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = welcomeText,
+                replyMarkup = Some(keyboard),
+              )
+              .exec(api)
+              .void
+          case None =>
+            // No mode, show mode selection
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = BotMessages.MODE_SELECTION_PROMPT(user.languageCode),
+                replyMarkup = Some(TelegramKeyboards.modeSelectionKeyboard(user.languageCode)),
+              )
+              .exec(api)
+              .void
+        }
+      } yield ()
 
     private def handleHelpCommand(msg: Message, user: dto.TelegramUser): F[Unit] = {
       val helpText = s"""${BotMessages.HELP_HEADER(user.languageCode)}
@@ -410,10 +493,12 @@ object TelegramBotAlgebra {
         user.telegramId,
         BotMode.Buyer,
         for {
-          // Update session state to AwaitingCity
-          _ <- sessionsRepo
-            .updateState(user.telegramId, BotState.AwaitingCity, None)
-            .transact(xa)
+          // Update session state to AwaitingCity while preserving mode
+          _ <- updateStatePreservingContext(
+            user.telegramId,
+            BotState.AwaitingCity,
+            user.languageCode,
+          )
 
           // Get cities from database
           cities <- citiesAlgebra.getAll
@@ -473,16 +558,25 @@ object TelegramBotAlgebra {
         msg: Message,
         user: dto.TelegramUser,
         city: String,
-      ): F[Unit] = {
-      val context = SearchContext(city = Some(city))
-
+      ): F[Unit] =
       for {
         _ <- sessionsRepo
-          .updateState(
-            user.telegramId,
-            BotState.AwaitingPriceRange,
-            Some(context.asJson),
-          )
+          .updateState(user.telegramId) { session =>
+            session
+              .context
+              .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+              .map { context =>
+                val updatedContext = context.copy(
+                  searchContext = SearchContext(city = city.some).some
+                )
+                session.copy(
+                  state = BotState.AwaitingPriceRange,
+                  context = Some(updatedContext.asJson),
+                )
+              }
+          }
           .transact(xa)
 
         // Send price selection with inline keyboard
@@ -503,7 +597,6 @@ object TelegramBotAlgebra {
           .exec(api)
           .void
       } yield ()
-    }
 
     private def handleCityInput(
         msg: Message,
@@ -537,26 +630,30 @@ object TelegramBotAlgebra {
         maxPrice: Option[Int],
       ): F[Unit] =
       for {
-        // Get existing context
-        session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
-        searchContext <- session
-          .flatMap(_.context)
-          .map(_.decodeAsF[F, SearchContext])
-          .getOrElse(SearchContext().pure[F])
-
-        // Update context with price
-        updatedContext = searchContext.copy(
-          minPrice = minPrice.map(BigDecimal(_)),
-          maxPrice = maxPrice.map(BigDecimal(_)),
-        )
-
-        // Update session to room selection
+        // Get existing BotContext
         _ <- sessionsRepo
-          .updateState(
-            user.telegramId,
-            BotState.AwaitingPriceRange, // Reusing this state for room selection
-            Some(updatedContext.asJson),
-          )
+          .updateState(user.telegramId) { session =>
+            session
+              .context
+              .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+              .map { context =>
+                val searchContext = context.searchContext.getOrElse(SearchContext())
+
+                val updatedSearchContext = searchContext.copy(
+                  minPrice = minPrice.map(BigDecimal(_)),
+                  maxPrice = maxPrice.map(BigDecimal(_)),
+                )
+                val updatedContext = context.copy(
+                  searchContext = updatedSearchContext.some
+                )
+                session.copy(
+                  state = BotState.AwaitingRooms,
+                  context = Some(updatedContext.asJson),
+                )
+              }
+          }
           .transact(xa)
 
         // Send room selection with inline keyboard
@@ -581,17 +678,28 @@ object TelegramBotAlgebra {
           for {
             searchContext <- session
               .context
-              .map(_.decodeAsF[F, SearchContext])
-              .getOrElse(SearchContext().pure[F])
+              .fold(SearchContext().pure[F])(
+                _.decodeAsF[F, SearchContext]
+              )
 
-            updatedContext = searchContext.copy(minPrice = Some(BigDecimal(minPrice)))
+            updatedSearchContext = searchContext.copy(minPrice = Some(BigDecimal(minPrice)))
 
             _ <- sessionsRepo
-              .updateState(
-                user.telegramId,
-                BotState.AwaitingCustomPriceMax,
-                Some(updatedContext.asJson),
-              )
+              .updateState(user.telegramId) { s =>
+                s.context
+                  .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                    _.decodeAsF[ConnectionIO, BotContext]
+                  )
+                  .map { ctx =>
+                    ctx.copy(searchContext = Some(updatedSearchContext))
+                  }
+                  .map { updatedContext =>
+                    s.copy(
+                      state = BotState.AwaitingCustomPriceMax,
+                      context = Some(updatedContext.asJson),
+                    )
+                  }
+              }
               .transact(xa)
 
             _ <- Methods
@@ -623,22 +731,33 @@ object TelegramBotAlgebra {
           for {
             searchContext <- session
               .context
-              .map(_.decodeAsF[F, SearchContext])
-              .getOrElse(SearchContext().pure[F])
+              .fold(SearchContext().pure[F])(
+                _.decodeAsF[F, SearchContext]
+              )
 
             // Validate min < max
             minValid = searchContext.minPrice.forall(_ < maxPrice)
 
             _ <-
               if (minValid) {
-                val updatedContext = searchContext.copy(maxPrice = Some(BigDecimal(maxPrice)))
+                val updatedSearchContext = searchContext.copy(maxPrice = Some(BigDecimal(maxPrice)))
                 for {
                   _ <- sessionsRepo
-                    .updateState(
-                      user.telegramId,
-                      BotState.AwaitingPriceRange,
-                      Some(updatedContext.asJson),
-                    )
+                    .updateState(user.telegramId) { s =>
+                      s.context
+                        .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                          _.decodeAsF[ConnectionIO, BotContext]
+                        )
+                        .map { ctx =>
+                          ctx.copy(searchContext = Some(updatedSearchContext))
+                        }
+                        .map { updatedContext =>
+                          s.copy(
+                            state = BotState.AwaitingPriceRange,
+                            context = Some(updatedContext.asJson),
+                          )
+                        }
+                    }
                     .transact(xa)
 
                   _ <- Methods
@@ -678,17 +797,52 @@ object TelegramBotAlgebra {
       ): F[Unit] =
       for {
         session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
-        searchContext <- session
+
+        botContext <- session
           .flatMap(_.context)
-          .map(_.decodeAsF[F, SearchContext])
-          .getOrElse(SearchContext().pure[F])
+          .traverse(_.decodeAsF[F, BotContext])
+          .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
 
-        updatedContext = searchContext.copy(
-          rooms = rooms,
-          page = 1,
-        )
+        _ <- botContext.searchContext match {
+          case Some(searchContext) =>
+            val updatedSearchContext = searchContext.copy(
+              rooms = rooms,
+              page = 1,
+            )
 
-        _ <- performSearch(msg, user, updatedContext)
+            sessionsRepo
+              .updateState(user.telegramId) { s =>
+                s.context
+                  .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                    _.decodeAsF[ConnectionIO, BotContext]
+                  )
+                  .map { ctx =>
+                    ctx.copy(searchContext = Some(updatedSearchContext))
+                  }
+                  .map { updatedContext =>
+                    s.copy(
+                      state = BotState.ViewingResults,
+                      context = Some(updatedContext.asJson),
+                    )
+                  }
+              }
+              .transact(xa)
+              .flatTap(_ => performSearch(msg, user, updatedSearchContext))
+          case None =>
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = BotMessages.searchContextRequired(user.languageCode),
+                replyMarkup = Some(
+                  botContext.mode match {
+                    case BotMode.Buyer => TelegramKeyboards.buyerHomeKeyboard(user.languageCode)
+                    case BotMode.Broker => TelegramKeyboards.brokerHomeKeyboard(user.languageCode)
+                  }
+                ),
+              )
+              .exec(api)
+              .void
+        }
       } yield ()
 
     private def performSearch(
@@ -761,10 +915,8 @@ object TelegramBotAlgebra {
                 )
                 .exec(api)
 
-              // Reset state
-              _ <- sessionsRepo
-                .updateState(user.telegramId, BotState.Idle, None)
-                .transact(xa)
+              // Reset state - preserve mode
+              _ <- updateStatePreservingContext(user.telegramId, BotState.Idle, user.languageCode)
             } yield ()
       } yield ()
 
@@ -867,16 +1019,52 @@ object TelegramBotAlgebra {
     private def handleShowMore(msg: Message, user: dto.TelegramUser): F[Unit] =
       for {
         session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
-        _ <- session.flatMap(_.context) match {
-          case Some(contextJson) =>
+
+        botContext <- session
+          .flatMap(_.context)
+          .traverse(_.decodeAsF[F, BotContext])
+          .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
+
+        _ <- botContext.searchContext match {
+          case Some(searchContext) =>
+            val newSearchContext = searchContext.copy(page = searchContext.page + 1)
+
             for {
-              searchContext <- contextJson.decodeAsF[F, SearchContext]
-              newContext = searchContext.copy(page = searchContext.page + 1)
-              _ <- Logger[F].info(s"Showing more results, page: ${newContext.page}")
-              _ <- performSearch(msg, user, newContext)
+              _ <- Logger[F].info(s"Showing more results, page: ${newSearchContext.page}")
+              _ <- sessionsRepo
+                .updateState(user.telegramId) { s =>
+                  s.context
+                    .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                      _.decodeAsF[ConnectionIO, BotContext]
+                    )
+                    .map { ctx =>
+                      ctx.copy(searchContext = Some(newSearchContext))
+                    }
+                    .map { updatedContext =>
+                      s.copy(
+                        state = BotState.ViewingResults,
+                        context = Some(updatedContext.asJson),
+                      )
+                    }
+                }
+                .transact(xa)
+                .flatTap(_ => performSearch(msg, user, newSearchContext))
             } yield ()
           case None =>
-            Logger[F].warn("No search context found for show more")
+            Logger[F].warn("No search context found for show more") *>
+              Methods
+                .sendMessage(
+                  chatId = ChatIntId(msg.chat.id),
+                  text = BotMessages.searchContextRequired(user.languageCode),
+                  replyMarkup = Some(
+                    botContext.mode match {
+                      case BotMode.Buyer => TelegramKeyboards.buyerHomeKeyboard(user.languageCode)
+                      case BotMode.Broker => TelegramKeyboards.brokerHomeKeyboard(user.languageCode)
+                    }
+                  ),
+                )
+                .exec(api)
+                .void
         }
       } yield ()
 
@@ -901,10 +1089,14 @@ object TelegramBotAlgebra {
     private def handleNextListing(msg: Message, user: dto.TelegramUser): F[Unit] =
       for {
         session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
-        _ <- session.flatMap(_.context) match {
-          case Some(contextJson) =>
+        botContext <- session
+          .flatMap(_.context)
+          .traverse(_.decodeAsF[F, BotContext])
+          .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
+
+        _ <- botContext.searchContext match {
+          case Some(searchContext) =>
             for {
-              searchContext <- contextJson.decodeAsF[F, SearchContext]
               _ <- Logger[F].info(s"Next listing requested, current page: ${searchContext.page}")
 
               // Get next listing on current page
@@ -937,7 +1129,6 @@ object TelegramBotAlgebra {
                 }
                 else
                   // No more listings on this page
-
                   Methods
                     .sendMessage(
                       chatId = ChatIntId(msg.chat.id),
@@ -953,7 +1144,20 @@ object TelegramBotAlgebra {
                     .void
             } yield ()
           case None =>
-            Logger[F].warn("No search context found for next listing")
+            Logger[F].warn("No search context found for next listing") *>
+              Methods
+                .sendMessage(
+                  chatId = ChatIntId(msg.chat.id),
+                  text = BotMessages.searchContextRequired(user.languageCode),
+                  replyMarkup = Some(
+                    botContext.mode match {
+                      case BotMode.Buyer => TelegramKeyboards.buyerHomeKeyboard(user.languageCode)
+                      case BotMode.Broker => TelegramKeyboards.brokerHomeKeyboard(user.languageCode)
+                    }
+                  ),
+                )
+                .exec(api)
+                .void
         }
       } yield ()
 
@@ -1419,8 +1623,8 @@ object TelegramBotAlgebra {
           .void
       }
       else if (normalized == "yo'q" || normalized == "no" || normalized == "нет")
-        // Cancel posting
-        sessionsRepo.updateState(user.telegramId, BotState.Idle, None).transact(xa) *>
+        // Cancel posting - preserve mode
+        updateStatePreservingContext(user.telegramId, BotState.Idle, user.languageCode) *>
           Methods
             .sendMessage(
               chatId = ChatIntId(msg.chat.id),
@@ -1471,31 +1675,39 @@ object TelegramBotAlgebra {
         lang: Language,
       ): F[Unit] =
       for {
-        session <- sessionsRepo.findByTelegramId(telegramId).transact(xa)
-        context <- session
-          .flatMap(_.context)
-          .map(_.decodeAsF[F, AdminPostingContext])
-          .getOrElse(
-            AdminPostingContext(
-              forwardedMessage = ForwardedMessage(None, List.empty, None),
-              listingType = None,
-              price = None,
-              city = None,
-              rooms = None,
-              phone = None,
-              district = None,
-              floor = None,
-              totalFloors = None,
-              buildingType = None,
-              condition = None,
-              selectedChannelId = None,
-            ).pure[F]
-          )
-
-        updatedContext = updateFn(context)
-
         _ <- sessionsRepo
-          .updateState(telegramId, nextState, Some(updatedContext.asJson))
+          .updateState(telegramId) { session =>
+            session
+              .context
+              .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+              .map { context =>
+                val adminContext = context
+                  .draftListing
+                  .getOrElse(
+                    AdminPostingContext(
+                      forwardedMessage = ForwardedMessage(None, List.empty, None),
+                      listingType = None,
+                      price = None,
+                      city = None,
+                      rooms = None,
+                      phone = None,
+                      district = None,
+                      floor = None,
+                      totalFloors = None,
+                      buildingType = None,
+                      condition = None,
+                      selectedChannelId = None,
+                    )
+                  )
+                val updatedAdminContext = updateFn(adminContext)
+                session.copy(
+                  state = nextState,
+                  context = Some(context.copy(draftListing = Some(updatedAdminContext)).asJson),
+                )
+              }
+          }
           .transact(xa)
 
         promptText = getNextStepPrompt(nextState, lang)
@@ -1527,9 +1739,13 @@ object TelegramBotAlgebra {
       ): F[Unit] =
       for {
         session <- sessionsRepo.findByTelegramId(telegramId).transact(xa)
-        context <- session
+        botContext <- session
           .flatMap(_.context)
-          .map(_.decodeAsF[F, AdminPostingContext])
+          .traverse(_.decodeAsF[F, BotContext])
+          .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
+
+        context = botContext
+          .draftListing
           .getOrElse(
             AdminPostingContext(
               forwardedMessage = ForwardedMessage(None, List.empty, None),
@@ -1544,13 +1760,28 @@ object TelegramBotAlgebra {
               buildingType = None,
               condition = None,
               selectedChannelId = None,
-            ).pure[F]
+            )
           )
 
         previewText = formatPreviewText(context, lang)
 
         _ <- sessionsRepo
-          .updateState(telegramId, BotState.AwaitingConfirmation, Some(context.asJson))
+          .updateState(telegramId) { session =>
+            session
+              .context
+              .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+              .map { ctx =>
+                ctx.copy(draftListing = Some(context))
+              }
+              .map { updatedContext =>
+                session.copy(
+                  state = BotState.AwaitingConfirmation,
+                  context = Some(updatedContext.asJson),
+                )
+              }
+          }
           .transact(xa)
 
         _ <- Methods
@@ -1581,12 +1812,11 @@ object TelegramBotAlgebra {
     private def handleAdminPostConfirm(msg: Message, user: dto.TelegramUser): F[Unit] =
       for {
         session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
-        contextOpt <- session
+        botContextOpt <- session
           .flatMap(_.context)
-          .map(_.decodeAsF[F, AdminPostingContext])
-          .sequence
+          .traverse(_.decodeAsF[F, BotContext])
 
-        _ <- contextOpt match {
+        _ <- botContextOpt.flatMap(_.draftListing) match {
           case Some(context) =>
             // Check if admin has linked user account
             user.userId match {
@@ -1623,9 +1853,7 @@ object TelegramBotAlgebra {
       val cancelText = BotMessages.LISTING_POSTING_CANCELLED(user.languageCode)
 
       for {
-        _ <- sessionsRepo
-          .updateState(user.telegramId, BotState.Idle, None)
-          .transact(xa)
+        _ <- updateStatePreservingContext(user.telegramId, BotState.Idle, user.languageCode)
         _ <- Methods
           .sendMessage(chatId = ChatIntId(msg.chat.id), text = cancelText)
           .exec(api)
@@ -1766,9 +1994,7 @@ object TelegramBotAlgebra {
 
             successText = BotMessages.LISTING_POSTED_PENDING_MODERATION(lang)
 
-            _ <- sessionsRepo
-              .updateState(telegramUserId, BotState.Idle, None)
-              .transact(xa)
+            _ <- updateStatePreservingContext(telegramUserId, BotState.Idle, lang)
 
             _ <- Methods
               .sendMessage(chatId = ChatIntId(chatId), text = successText)
@@ -1869,6 +2095,41 @@ object TelegramBotAlgebra {
             .warn(s"No session found for telegramId: $telegramId, defaulting to Buyer mode")
             .as[BotMode](BotMode.Buyer)
         )(_.decodeAsF[F, BotContext].map(_.mode))
+
+    // Helper method to update state while preserving existing context
+    private def updateStatePreservingContext(
+        telegramId: Long,
+        newState: BotState,
+        language: Language,
+      )(implicit
+        xa: doobie.Transactor[F]
+      ): F[Unit] =
+      for {
+        // Get current session to preserve all existing context
+        currentSession <- sessionsRepo.findByTelegramId(telegramId).transact(xa)
+        implicit0(lang: Language) = language
+        // Update state while keeping existing context unchanged
+        now <- Calendar[F].currentZonedDateTime
+        _ <- sessionsRepo
+          .upsert(
+            currentSession match {
+              case Some(session) =>
+                session.copy(
+                  state = newState,
+                  updatedAt = now,
+                )
+              case None =>
+                // No session exists, create new one (shouldn't happen in normal flow)
+                dto.TelegramSession(
+                  telegramId = telegramId,
+                  state = newState,
+                  context = None,
+                  updatedAt = now,
+                )
+            }
+          )
+          .transact(xa)
+      } yield ()
 
     override def setupWebhook(): F[Unit] = {
       val fullWebhookUrl = s"$webhookBaseUrl/$botToken"

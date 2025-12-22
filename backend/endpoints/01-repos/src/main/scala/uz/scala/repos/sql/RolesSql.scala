@@ -23,9 +23,14 @@ private[repos] object RolesSql extends Sql[dto.Role] {
 
   def findDtoById(id: RoleId): Query0[dto.Role] =
     sql"""
-        SELECT id, name, description, is_system, created_at, updated_at 
+        SELECT id, name, description, is_system, created_at, updated_at
         FROM $table WHERE id = $id
     """.query[dto.Role]
+
+  def findByName(name: String): Query0[Role] =
+    sql"""
+        SELECT * FROM role_privileges_view WHERE name = $name
+    """.query[Role]
 
   def update(role: dto.Role): Update0 =
     sql"""

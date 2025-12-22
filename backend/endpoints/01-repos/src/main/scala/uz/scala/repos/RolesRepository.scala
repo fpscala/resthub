@@ -27,6 +27,7 @@ trait RolesRepository[F[_]] {
       language: Language
     ): ConnectionIO[Unit]
   def getRole(roleId: RoleId)(implicit language: Language): F[Role]
+  def getRoleByName(name: String)(implicit language: Language): F[Role]
   def getRoles(roleIds: List[RoleId]): F[Map[RoleId, Role]]
   def insertPrivileges(privileges: List[Privilege]): F[Unit]
   def addPrivileges(roleId: RoleId, privileges: List[Privilege]): F[Unit]
@@ -68,6 +69,10 @@ object RolesRepository {
 
     override def getRole(roleId: RoleId)(implicit language: Language): ConnectionIO[Role] =
       OptionT(RolesSql.findById(roleId).option)
+        .getOrRaise(AError.Internal(ROLE_NOT_FOUND(language)))
+
+    override def getRoleByName(name: String)(implicit language: Language): ConnectionIO[Role] =
+      OptionT(RolesSql.findByName(name).option)
         .getOrRaise(AError.Internal(ROLE_NOT_FOUND(language)))
 
     override def getRoles(roleIds: List[RoleId]): ConnectionIO[Map[RoleId, Role]] =

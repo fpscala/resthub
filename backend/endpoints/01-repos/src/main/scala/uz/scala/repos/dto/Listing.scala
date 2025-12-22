@@ -29,6 +29,8 @@ case class Listing(
     totalFloors: Option[Int],
     buildingType: Option[String],
     condition: Option[String],
+    telegramChannelId: Option[Long],
+    telegramMessageId: Option[String],
     createdAt: ZonedDateTime,
     updatedAt: ZonedDateTime,
     approvedAt: Option[ZonedDateTime],
@@ -50,5 +52,7 @@ object Listing {
       .withFieldComputed(_.rejectionReason, _ => None)
       .withFieldConst(_.approvedBy, None)
       .withFieldConst(_.approvedAt, None)
+      .withFieldConst(_.telegramChannelId, None)
+      .withFieldConst(_.telegramMessageId, None)
       .transform
 }

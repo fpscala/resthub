@@ -3,14 +3,15 @@ package uz.scala.repos
 import cats.implicits._
 import doobie.ConnectionIO
 import doobie.implicits._
-
 import uz.scala.Language
+import uz.scala.domain.UserId
 import uz.scala.repos.sql.TelegramUsersSql
 
 trait TelegramUsersRepository[F[_]] {
   def findByTelegramId(telegramId: Long): F[Option[dto.TelegramUser]]
   def create(telegramUser: dto.TelegramUser)(implicit lang: Language): F[Unit]
   def updateLastInteraction(telegramId: Long): F[Unit]
+  def updateUserId(telegramId: Long, userId: UserId): F[Unit]
 }
 
 object TelegramUsersRepository {
@@ -23,5 +24,8 @@ object TelegramUsersRepository {
 
     override def updateLastInteraction(telegramId: Long): ConnectionIO[Unit] =
       TelegramUsersSql.updateLastInteraction(telegramId).run.void
+
+    override def updateUserId(telegramId: Long, userId: UserId): ConnectionIO[Unit] =
+      TelegramUsersSql.updateUserId(telegramId, userId).run.void
   }
 }

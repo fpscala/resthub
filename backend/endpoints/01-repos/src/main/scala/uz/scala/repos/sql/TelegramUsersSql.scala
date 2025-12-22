@@ -19,4 +19,7 @@ private[repos] object TelegramUsersSql extends Sql[dto.TelegramUser] {
 
   def updateLastInteraction(telegramId: Long): Update0 =
     sql"""UPDATE $table SET last_interaction_at = NOW() WHERE telegram_id = $telegramId""".update
+
+  def updateUserId(telegramId: Long, userId: uz.scala.domain.UserId): Update0 =
+    sql"""UPDATE $table SET user_id = $userId WHERE telegram_id = $telegramId""".update
 }

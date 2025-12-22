@@ -160,6 +160,29 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
+  // Listing type keyboard for admin posting
+  def listingTypeKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (forRent, forSale) = language match {
+      case Uz =>
+        ("🏢 Ijaraga", "🏡 Sotishga")
+      case Ru =>
+        ("🏢 В аренду", "🏡 На продажу")
+      case En =>
+        ("🏢 For Rent", "🏡 For Sale")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(forRent, callbackData = Some("listing_type_apartment"))
+      ),
+      List(
+        InlineKeyboardButton(forSale, callbackData = Some("listing_type_house"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
   // Legacy keyboards for backward compatibility
   def buyerModeKeyboard(language: Language): InlineKeyboardMarkup = buyerHomeKeyboard(language)
 

@@ -104,9 +104,15 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
   )
 
   val ADMIN_POST_PROMPT: Map[Language, String] = Map(
-    En -> "Please forward the listing you want to post to the platform:",
-    Ru -> "Пожалуйста, перешлите мне объявление, которое вы хотите разместить на платформе:",
-    Uz -> "Iltimos, platformaga joylamoqchi bo'lgan e'lonni menga forward qiling:",
+    En -> "📝 *Creating New Listing*\n\nPlease send me the listing information:\n- Text description\n- Photos (optional)\n\nYou can also forward a listing from another channel.",
+    Ru -> "📝 *Создание нового объявления*\n\nОтправьте мне информацию об объявлении:\n- Текстовое описание\n- Фотографии (необязательно)\n\nВы также можете переслать объявление с другого канала.",
+    Uz -> "📝 *Yangi e'lon yaratish*\n\nIltimos, e'lon haqida ma'lumot yuboring:\n- Tavsif matni\n- Rasmlar (ixtiyoriy)\n\nBoshqa kanaldan e'lonni ham forward qilishingiz mumkin.",
+  )
+
+  val SELECT_LISTING_TYPE: Map[Language, String] = Map(
+    En -> "🏠 *Select Listing Type*\n\nWhat type of property are you listing?",
+    Ru -> "🏠 *Выберите тип объявления*\n\nКакой тип недвижимости вы размещаете?",
+    Uz -> "🏠 *E'lon turini tanlang*\n\nQanday turdagi uyni e'lon qilyapsiz?",
   )
 
   val ADMIN_POST_CONFIRM: Map[Language, String] = Map(
@@ -561,4 +567,54 @@ $contactIcon $contact"""
     case Ru => "⚠️ Контекст поиска не найден. Пожалуйста, начните поиск заново."
     case En => "⚠️ Search context not found. Please start a new search."
   }
+
+  def NO_DRAFTS_MESSAGE(language: Language): String = language match {
+    case Uz => "📋 Hozircha saqlangan qoralamalar yo'q."
+    case Ru => "📋 Пока нет сохраненных черновиков."
+    case En => "📋 No saved drafts yet."
+  }
+
+  def FEATURE_COMING_SOON(language: Language): String = language match {
+    case Uz => "🚧 Bu funksiya yaqin kelajakda qo'shiladi."
+    case Ru => "🚧 Эта функция будет добавлена в ближайшее время."
+    case En => "🚧 This feature will be added soon."
+  }
+
+  val HELP_ADMIN_SECTION: Map[Language, String] = Map(
+    Uz -> """
+🏢 **Broker Rejimi Yordami**
+
+Siz NestHub broker sizisiz! Uylarni kanallarda joylashtirishingiz mumkin.""",
+    Ru -> """
+🏢 **Помощь по режиму брокера**
+
+Вы брокер NestHub! Вы можете размещать объекты в каналах.""",
+    En -> """
+🏢 **Broker Mode Help**
+
+You're a NestHub broker! You can post listings to channels."""
+  )
+
+  val HELP_ADMIN_STEPS: Map[Language, String] = Map(
+    Uz -> """
+📋 **Qanday qilib e'lon joylashtirish kerak:**
+
+1. Yangi e'lon tugmasini bosing
+2. E'lon ma'lumotlarini kiriting
+3. Kanalni tanlang
+4. Joylashtirishni tasdiqlang""",
+    Ru -> """
+📋 **Как разместить объявление:**
+
+1. Нажмите "Новое объявление"
+2. Введите данные объявления
+3. Выберите канал
+4. Подтвердите размещение""",
+    En -> """
+📋 **How to post a listing:**
+
+1. Click "New listing"
+2. Enter listing details
+3. Select channel
+4. Confirm posting""")
 }

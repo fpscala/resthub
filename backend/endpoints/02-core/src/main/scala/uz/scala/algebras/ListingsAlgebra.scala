@@ -87,10 +87,6 @@ object ListingsAlgebra {
           images = input.images,
           status = ListingStatus.Pending,
           rejectionReason = None,
-          createdAt = now,
-          updatedAt = now,
-          approvedAt = None,
-          approvedBy = None,
           listingType = ListingType.ForRent,
           rooms = None,
           district = None,
@@ -98,6 +94,12 @@ object ListingsAlgebra {
           totalFloors = None,
           buildingType = None,
           condition = None,
+          telegramChannelId = None,
+          telegramMessageId = None,
+          createdAt = now,
+          updatedAt = now,
+          approvedAt = None,
+          approvedBy = None,
         )
 
         _ <- listingsRepository.create(listing).transact(xa)

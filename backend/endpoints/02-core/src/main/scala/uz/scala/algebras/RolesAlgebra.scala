@@ -20,6 +20,7 @@ trait RolesAlgebra[F[_]] {
   def updateRole(roleId: RoleId, input: RoleUpdateInput)(implicit language: Language): F[Unit]
   def getAll: F[List[Role]]
   def getRole(roleId: RoleId)(implicit language: Language): F[Role]
+  def getRoleByName(name: String)(implicit language: Language): F[Role]
   def deleteRole(roleId: RoleId): F[Unit]
 }
 
@@ -65,6 +66,9 @@ object RolesAlgebra {
 
       override def getRole(roleId: RoleId)(implicit language: Language): F[Role] =
         rolesRepository.getRole(roleId).transact(xa)
+
+      override def getRoleByName(name: String)(implicit language: Language): F[Role] =
+        rolesRepository.getRoleByName(name).transact(xa)
 
       override def deleteRole(roleId: RoleId): F[Unit] =
         rolesRepository.delete(roleId).transact(xa)

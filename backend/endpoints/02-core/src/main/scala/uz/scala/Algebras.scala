@@ -49,7 +49,7 @@ object Algebras {
     val users = UsersAlgebra.make[F](repositories.users, repositories.roles)
     val roles = RolesAlgebra.make[F](repositories.roles)
     val emailService = EmailService.make[F](mailer, frontendBaseUrl, activationPath)
-    val authAlgebra = AuthAlgebra.make[F](repositories.users)
+    val authAlgebra = AuthAlgebra.make[F](repositories.users, repositories.roles)
     val listings =
       ListingsAlgebra.make[F](repositories.listings, repositories.users, repositories.roles)
     val adminListings =
@@ -72,6 +72,7 @@ object Algebras {
       repositories.listings,
       listings,
       cities,
+      authAlgebra,
       botToken,
       webhookBaseUrl,
     )

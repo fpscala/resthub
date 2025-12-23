@@ -318,4 +318,223 @@ object TelegramKeyboards {
 
     InlineKeyboardMarkup(buttons)
   }
+
+  // ============================================================
+  // BROKER POSTING - BUTTON-FIRST UX KEYBOARDS
+  // ============================================================
+
+  // Price selection keyboard with preset amounts
+  def priceKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (price200, price300, price500, custom, skip) = language match {
+      case Uz =>
+        ("💰 200$", "💰 300$", "💰 500$", "✍️ Boshqa summa", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("💰 200$", "💰 300$", "💰 500$", "✍️ Другая сумма", "⏭ Пропустить")
+      case En =>
+        ("💰 200$", "💰 300$", "💰 500$", "✍️ Other amount", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(price200, callbackData = Some("price_200")),
+        InlineKeyboardButton(price300, callbackData = Some("price_300")),
+        InlineKeyboardButton(price500, callbackData = Some("price_500")),
+      ),
+      List(
+        InlineKeyboardButton(custom, callbackData = Some("price_custom"))
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("price_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // City selection keyboard with major cities
+  def cityKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (tashkent, samarqand, andijon, bukhara, custom) = language match {
+      case Uz =>
+        ("📍 Toshkent", "📍 Samarqand", "📍 Andijon", "📍 Buxoro", "✍️ Boshqa")
+      case Ru =>
+        ("📍 Ташкент", "📍 Самарканд", "📍 Андижан", "📍 Бухара", "✍️ Другой")
+      case En =>
+        ("📍 Tashkent", "📍 Samarkand", "📍 Andijan", "📍 Bukhara", "✍️ Other")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(tashkent, callbackData = Some("city_tashkent")),
+        InlineKeyboardButton(samarqand, callbackData = Some("city_samarqand")),
+      ),
+      List(
+        InlineKeyboardButton(andijon, callbackData = Some("city_andijan")),
+        InlineKeyboardButton(bukhara, callbackData = Some("city_bukhara")),
+      ),
+      List(
+        InlineKeyboardButton(custom, callbackData = Some("city_custom"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Phone number keyboard with contact request
+  def phoneKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (shareContact, manual, skip) = language match {
+      case Uz =>
+        ("📲 Telegram raqamni yuborish", "✍️ Qo'lda kiritish", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("📲 Отправить номер", "✍️ Вручную", "⏭ Пропустить")
+      case En =>
+        ("📲 Share Telegram number", "✍️ Enter manually", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(shareContact, callbackData = Some("phone_share_contact"))
+      ),
+      List(
+        InlineKeyboardButton(manual, callbackData = Some("phone_manual"))
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("phone_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // District keyboard with popular districts
+  def districtKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (chilonzor, sergeli, yunusobod, custom, skip) = language match {
+      case Uz =>
+        ("🏙 Chilonzor", "🏙 Sergeli", "🏙 Yunusobod", "✍️ Boshqa", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("🏙 Чиланзар", "🏙 Сергели", "🏙 Юнусабад", "✍️ Другой", "⏭ Пропустить")
+      case En =>
+        ("🏙 Chilonzor", "🏙 Sergeli", "🏙 Yunusobod", "✍️ Other", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(chilonzor, callbackData = Some("district_chilonzor")),
+        InlineKeyboardButton(sergeli, callbackData = Some("district_sergeli")),
+      ),
+      List(
+        InlineKeyboardButton(yunusobod, callbackData = Some("district_yunusobod")),
+      ),
+      List(
+        InlineKeyboardButton(custom, callbackData = Some("district_custom"))
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("district_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Floor selection keyboard
+  def floorKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (floor1, floor2, floor3, floor4plus, skip) = language match {
+      case Uz =>
+        ("1", "2", "3", "4+", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("1", "2", "3", "4+", "⏭ Пропустить")
+      case En =>
+        ("1", "2", "3", "4+", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(floor1, callbackData = Some("floor_1")),
+        InlineKeyboardButton(floor2, callbackData = Some("floor_2")),
+        InlineKeyboardButton(floor3, callbackData = Some("floor_3")),
+        InlineKeyboardButton(floor4plus, callbackData = Some("floor_4+")),
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("floor_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Total floors selection keyboard
+  def totalFloorsKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (floors3, floors5, floors9, skip) = language match {
+      case Uz =>
+        ("3", "5", "9", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("3", "5", "9", "⏭ Пропустить")
+      case En =>
+        ("3", "5", "9", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(floors3, callbackData = Some("total_floors_3")),
+        InlineKeyboardButton(floors5, callbackData = Some("total_floors_5")),
+        InlineKeyboardButton(floors9, callbackData = Some("total_floors_9")),
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("total_floors_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Building type selection keyboard
+  def buildingTypeKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (apartment, house, office, skip) = language match {
+      case Uz =>
+        ("🏢 Kvartira", "🏠 Hovli", "🏢 Ofis", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("🏢 Квартира", "🏠 Дом", "🏢 Офис", "⏭ Пропустить")
+      case En =>
+        ("🏢 Apartment", "🏠 House", "🏢 Office", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(apartment, callbackData = Some("building_apartment")),
+        InlineKeyboardButton(house, callbackData = Some("building_house")),
+      ),
+      List(
+        InlineKeyboardButton(office, callbackData = Some("building_office"))
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("building_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Condition selection keyboard
+  def conditionKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (good, excellent, needsRepair, skip) = language match {
+      case Uz =>
+        ("✅ Yaxshi", "⭐ Zo'r", "🛠 Ta'mir talab", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        ("✅ Хорошее", "⭐ Отличное", "🛠 Требует ремонта", "⏭ Пропустить")
+      case En =>
+        ("✅ Good", "⭐ Excellent", "🛠 Needs repair", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(good, callbackData = Some("condition_good")),
+        InlineKeyboardButton(excellent, callbackData = Some("condition_excellent")),
+        InlineKeyboardButton(needsRepair, callbackData = Some("condition_needs_repair")),
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("condition_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
 }

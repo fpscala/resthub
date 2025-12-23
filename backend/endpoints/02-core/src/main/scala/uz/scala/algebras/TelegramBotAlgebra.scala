@@ -27,6 +27,8 @@ import uz.scala.domain.listings.ListingFilters
 import uz.scala.domain.listings.ListingOutput
 import uz.scala.domain.telegram.AdminPostingContext
 import uz.scala.domain.telegram.BotContext
+import uz.scala.domain.telegram.BrokerFlowContext
+import uz.scala.domain.telegram.BrokerStep
 import uz.scala.domain.telegram.ForwardedMessage
 import uz.scala.domain.telegram.SearchContext
 import uz.scala.effects.Calendar
@@ -155,31 +157,61 @@ object TelegramBotAlgebra {
         // City selection
         case cityData if cityData.startsWith("city_") =>
           val city = cityData.stripPrefix("city_")
-          if (city == "other")
-            for {
-              _ <- updateStatePreservingContext(
-                user.telegramId,
-                BotState.AwaitingCustomCity,
-                user.languageCode,
-              )
-              _ <- Methods
-                .sendMessage(
-                  chatId = ChatIntId(msg.chat.id),
-                  text = BotMessages.ENTER_CUSTOM_CITY(user.languageCode),
+          city match {
+            // Broker posting - specific city buttons
+            case "tashkent" => handleCityPostingSelection(msg, user, Some("Toshkent"))
+            case "samarqand" => handleCityPostingSelection(msg, user, Some("Samarqand"))
+            case "andijan" => handleCityPostingSelection(msg, user, Some("Andijon"))
+            case "bukhara" => handleCityPostingSelection(msg, user, Some("Buxoro"))
+            case "custom" =>
+              for {
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.BrokerAwaitingCity,
+                  user.languageCode,
                 )
-                .exec(api)
-                .void
-            } yield ()
-          else
-            handleCitySelection(msg, user, city)
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.PROMPT_CITY_CUSTOM(user.languageCode),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
+            // Buyer search - dynamic city names or "other"
+            case "other" =>
+              for {
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.AwaitingCustomCity,
+                  user.languageCode,
+                )
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.ENTER_CUSTOM_CITY(user.languageCode),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
+            // Buyer search - pass through any other city name
+            case _ => handleCitySelection(msg, user, city)
+          }
 
         // Price range selection
         case priceData if priceData.startsWith("price_") =>
           priceData.stripPrefix("price_") match {
+            // Buyer search - price ranges with underscore
             case "200_500" => handlePriceSelection(msg, user, Some(200), Some(500))
             case "500_800" => handlePriceSelection(msg, user, Some(500), Some(800))
             case "800_1200" => handlePriceSelection(msg, user, Some(800), Some(1200))
             case "1200_2000" => handlePriceSelection(msg, user, Some(1200), Some(2000))
+            // Broker posting - single prices and custom/skip
+            case "200" => handlePricePostingSelection(msg, user, Some(BigDecimal(200)))
+            case "300" => handlePricePostingSelection(msg, user, Some(BigDecimal(300)))
+            case "500" => handlePricePostingSelection(msg, user, Some(BigDecimal(500)))
+            case "skip" => handlePricePostingSelection(msg, user, None)
+            // Buyer custom price (for search)
             case "custom" =>
               for {
                 _ <- updateStatePreservingContext(
@@ -196,16 +228,42 @@ object TelegramBotAlgebra {
                   .exec(api)
                   .void
               } yield ()
+            // Handle any other unknown price patterns
+            case _ =>
+              Logger[F].warn(s"Unknown price pattern: $priceData") *>
+                Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.INVALID_PRICE(user.languageCode),
+                  )
+                  .exec(api)
+                  .void
           }
 
-        // Room selection
+        // Room selection - MODE-SPECIFIC ROUTING
         case roomsData if roomsData.startsWith("rooms_") =>
           val rooms = roomsData.stripPrefix("rooms_") match {
             case "skip" => None
             case "4+" => Some(4)
             case num => num.toIntOption
           }
-          handleRoomSelection(msg, user, rooms)
+          // Route based on mode - BUYER searches, BROKER posts
+          for {
+            session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
+            botContext <- session.flatMap(_.context).traverse(_.decodeAsF[F, BotContext])
+            _ <- botContext match {
+              case Some(context) if context.mode == BotMode.Broker =>
+                // BROKER: Update broker posting context with rooms
+                val roomValue = rooms match {
+                  case None => "skip"
+                  case Some(r) => r.toString
+                }
+                handleRoomsInput(msg, user, roomValue)
+              case _ =>
+                // BUYER or no context: Search for listings
+                handleRoomSelection(msg, user, rooms)
+            }
+          } yield {}
 
         // Results navigation
         case "show_more" => handleShowMore(msg, user)
@@ -241,6 +299,125 @@ object TelegramBotAlgebra {
         case "listing_type_apartment" => handleListingTypeSelection(msg, user, ListingType.ForRent)
         case "listing_type_house" => handleListingTypeSelection(msg, user, ListingType.ForSale)
 
+        // ============================================================
+        // BROKER POSTING - BUTTON-FIRST UX CALLBACKS
+        // ============================================================
+
+        // Phone selection
+        case phoneData if phoneData.startsWith("phone_") =>
+          phoneData.stripPrefix("phone_") match {
+            case "share_contact" =>
+              for {
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.BrokerAwaitingPhone,
+                  user.languageCode,
+                )
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.PROMPT_PHONE_BUTTON(user.languageCode),
+                    replyMarkup = Some(
+                      telegramium
+                        .bots
+                        .ReplyKeyboardMarkup(
+                          keyboard = List(
+                            List(
+                              telegramium
+                                .bots
+                                .KeyboardButton(
+                                  text = BotMessages.SHARE_CONTACT_BUTTON(user.languageCode),
+                                  requestContact = Some(true),
+                                )
+                            )
+                          ),
+                          oneTimeKeyboard = Some(true),
+                          resizeKeyboard = Some(true),
+                        )
+                    ),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
+            case "manual" =>
+              for {
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.BrokerAwaitingPhone,
+                  user.languageCode,
+                )
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.PROMPT_PHONE_MANUAL(user.languageCode),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
+            case "skip" => handlePhonePostingSelection(msg, user, None)
+          }
+
+        // District selection
+        case districtData if districtData.startsWith("district_") =>
+          districtData.stripPrefix("district_") match {
+            case "chilonzor" => handleDistrictPostingSelection(msg, user, Some("Chilonzor"))
+            case "sergeli" => handleDistrictPostingSelection(msg, user, Some("Sergeli"))
+            case "yunusobod" => handleDistrictPostingSelection(msg, user, Some("Yunusobod"))
+            case "custom" =>
+              for {
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.BrokerAwaitingDistrict,
+                  user.languageCode,
+                )
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.PROMPT_DISTRICT_CUSTOM(user.languageCode),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
+            case "skip" => handleDistrictPostingSelection(msg, user, None)
+          }
+
+        // Floor selection
+        case floorData if floorData.startsWith("floor_") =>
+          floorData.stripPrefix("floor_") match {
+            case "1" => handleFloorPostingSelection(msg, user, Some(1))
+            case "2" => handleFloorPostingSelection(msg, user, Some(2))
+            case "3" => handleFloorPostingSelection(msg, user, Some(3))
+            case "4+" => handleFloorPostingSelection(msg, user, Some(4))
+            case "skip" => handleFloorPostingSelection(msg, user, None)
+          }
+
+        // Total floors selection
+        case totalFloorsData if totalFloorsData.startsWith("total_floors_") =>
+          totalFloorsData.stripPrefix("total_floors_") match {
+            case "3" => handleTotalFloorsPostingSelection(msg, user, Some(3))
+            case "5" => handleTotalFloorsPostingSelection(msg, user, Some(5))
+            case "9" => handleTotalFloorsPostingSelection(msg, user, Some(9))
+            case "skip" => handleTotalFloorsPostingSelection(msg, user, None)
+          }
+
+        // Building type selection
+        case buildingData if buildingData.startsWith("building_") =>
+          buildingData.stripPrefix("building_") match {
+            case "apartment" => handleBuildingTypePostingSelection(msg, user, Some("Kvartira"))
+            case "house" => handleBuildingTypePostingSelection(msg, user, Some("Hovli"))
+            case "office" => handleBuildingTypePostingSelection(msg, user, Some("Ofis"))
+            case "skip" => handleBuildingTypePostingSelection(msg, user, None)
+          }
+
+        // Condition selection
+        case conditionData if conditionData.startsWith("condition_") =>
+          conditionData.stripPrefix("condition_") match {
+            case "good" => handleConditionPostingSelection(msg, user, Some("Yaxshi"))
+            case "excellent" => handleConditionPostingSelection(msg, user, Some("Zo'r"))
+            case "needs_repair" => handleConditionPostingSelection(msg, user, Some("Ta'mir talab"))
+            case "skip" => handleConditionPostingSelection(msg, user, None)
+          }
+
         // Admin posting actions
         case "admin_post_confirm" => handleAdminPostConfirm(msg, user)
         case "admin_post_cancel" => handleAdminPostCancel(msg, user)
@@ -265,6 +442,7 @@ object TelegramBotAlgebra {
                 firstName = from.firstName,
                 languageCode =
                   from.languageCode.flatMap(Language.withNameOption).getOrElse(Language.Uz),
+                phoneNumber = None, // Phone number not available during initial message
                 isRegistered = false,
                 createdAt = now,
                 lastInteractionAt = now,
@@ -345,6 +523,7 @@ object TelegramBotAlgebra {
         username = telegramUser.username,
         firstName = telegramUser.firstName,
         languageCode = telegramUser.languageCode,
+        phoneNumber = telegramUser.phoneNumber,
         isRegistered = false, // Will be true after users table link
         createdAt = now,
         lastInteractionAt = now,
@@ -691,33 +870,30 @@ object TelegramBotAlgebra {
                 case BotState.AwaitingCustomPriceMax =>
                   handleCustomPriceMax(msg, user, session, text)
                 case BotState.ViewingResults => handleResultsMessage(msg, user)
-                case BotState.Registering => Logger[F].debug("Registration not implemented yet")
-                // Admin posting states (should not happen in buyer mode)
                 case _ =>
                   Logger[F].warn("Buyer in admin posting state, ignoring")
               }
             case BotMode.Broker =>
-              // Broker can only use IDLE and REGISTERING states
+              // Broker uses BrokerAwaiting* states only
               session.state match {
                 case BotState.Idle =>
                   Logger[F].debug("Broker is idle, ignoring message")
-                case BotState.Registering => handleAdminPost(msg, user)
-                case BotState.AwaitingListingType => handleListingTypeInput(msg, user, text)
-                case BotState.AwaitingPrice => handlePriceInput(msg, user, text)
-                case BotState.AwaitingCityForPosting => handleCityForPostingInput(msg, user, text)
-                case BotState.AwaitingRooms => handleRoomsInput(msg, user, text)
-                case BotState.AwaitingPhone => handlePhoneInput(msg, user, text)
-                case BotState.AwaitingDistrict => handleDistrictInput(msg, user, text)
-                case BotState.AwaitingFloor => handleFloorInput(msg, user, text)
-                case BotState.AwaitingTotalFloors => handleTotalFloorsInput(msg, user, text)
-                case BotState.AwaitingBuildingType => handleBuildingTypeInput(msg, user, text)
-                case BotState.AwaitingCondition => handleConditionInput(msg, user, text)
-                case BotState.AwaitingChannelSelection =>
+                case BotState.BrokerAwaitingListingType => handleListingTypeInput(msg, user, text)
+                case BotState.BrokerAwaitingPrice => handlePriceInput(msg, user, text)
+                case BotState.BrokerAwaitingCity => handleCityForPostingInput(msg, user, text)
+                case BotState.BrokerAwaitingRooms => handleRoomsInput(msg, user, text)
+                case BotState.BrokerAwaitingPhone => handlePhoneInput(msg, user, text)
+                case BotState.BrokerAwaitingDistrict => handleDistrictInput(msg, user, text)
+                case BotState.BrokerAwaitingFloor => handleFloorInput(msg, user, text)
+                case BotState.BrokerAwaitingTotalFloors => handleTotalFloorsInput(msg, user, text)
+                case BotState.BrokerAwaitingBuildingType => handleBuildingTypeInput(msg, user, text)
+                case BotState.BrokerAwaitingCondition => handleConditionInput(msg, user, text)
+                case BotState.BrokerAwaitingChannelSelection =>
                   handleChannelSelectionInput(msg, user, text)
-                case BotState.AwaitingConfirmation =>
+                case BotState.BrokerAwaitingConfirmation =>
                   handleConfirmationInput(msg, user, text)
-                case _ =>
-                  Logger[F].warn("Broker in buyer state, ignoring")
+                case state =>
+                  Logger[F].warn(s"Broker in invalid state: $state, ignoring")
               }
           }
         case None =>
@@ -740,7 +916,7 @@ object TelegramBotAlgebra {
               )
               .map { context =>
                 val updatedContext = context.copy(
-                  searchContext = SearchContext(city = city.some).some
+                  search = SearchContext(city = city.some).some
                 )
                 session.copy(
                   state = BotState.AwaitingPriceRange,
@@ -810,17 +986,17 @@ object TelegramBotAlgebra {
                 _.decodeAsF[ConnectionIO, BotContext]
               )
               .map { context =>
-                val searchContext = context.searchContext.getOrElse(SearchContext())
+                val searchContext = context.search.getOrElse(SearchContext())
 
                 val updatedSearchContext = searchContext.copy(
                   minPrice = minPrice.map(BigDecimal(_)),
                   maxPrice = maxPrice.map(BigDecimal(_)),
                 )
                 val updatedContext = context.copy(
-                  searchContext = updatedSearchContext.some
+                  search = updatedSearchContext.some
                 )
                 session.copy(
-                  state = BotState.AwaitingRooms,
+                  state = BotState.BrokerAwaitingRooms,
                   context = Some(updatedContext.asJson),
                 )
               }
@@ -862,7 +1038,7 @@ object TelegramBotAlgebra {
                     _.decodeAsF[ConnectionIO, BotContext]
                   )
                   .map { ctx =>
-                    ctx.copy(searchContext = Some(updatedSearchContext))
+                    ctx.copy(search = updatedSearchContext.some)
                   }
                   .map { updatedContext =>
                     s.copy(
@@ -920,7 +1096,7 @@ object TelegramBotAlgebra {
                           _.decodeAsF[ConnectionIO, BotContext]
                         )
                         .map { ctx =>
-                          ctx.copy(searchContext = Some(updatedSearchContext))
+                          ctx.copy(search = updatedSearchContext.some)
                         }
                         .map { updatedContext =>
                           s.copy(
@@ -974,7 +1150,7 @@ object TelegramBotAlgebra {
           .traverse(_.decodeAsF[F, BotContext])
           .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
 
-        _ <- botContext.searchContext match {
+        _ <- botContext.search match {
           case Some(searchContext) =>
             val updatedSearchContext = searchContext.copy(
               rooms = rooms,
@@ -988,7 +1164,7 @@ object TelegramBotAlgebra {
                     _.decodeAsF[ConnectionIO, BotContext]
                   )
                   .map { ctx =>
-                    ctx.copy(searchContext = Some(updatedSearchContext))
+                    ctx.copy(search = Some(updatedSearchContext))
                   }
                   .map { updatedContext =>
                     s.copy(
@@ -1196,7 +1372,7 @@ object TelegramBotAlgebra {
           .traverse(_.decodeAsF[F, BotContext])
           .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
 
-        _ <- botContext.searchContext match {
+        _ <- botContext.search match {
           case Some(searchContext) =>
             val newSearchContext = searchContext.copy(page = searchContext.page + 1)
 
@@ -1209,7 +1385,7 @@ object TelegramBotAlgebra {
                       _.decodeAsF[ConnectionIO, BotContext]
                     )
                     .map { ctx =>
-                      ctx.copy(searchContext = Some(newSearchContext))
+                      ctx.copy(search = Some(newSearchContext))
                     }
                     .map { updatedContext =>
                       s.copy(
@@ -1265,7 +1441,7 @@ object TelegramBotAlgebra {
           .traverse(_.decodeAsF[F, BotContext])
           .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
 
-        _ <- botContext.searchContext match {
+        _ <- botContext.search match {
           case Some(searchContext) =>
             for {
               _ <- Logger[F].info(s"Next listing requested, current page: ${searchContext.page}")
@@ -1364,7 +1540,7 @@ object TelegramBotAlgebra {
             .updateState(user.telegramId) { session =>
               Calendar[ConnectionIO].currentZonedDateTime.map { now =>
                 session.copy(
-                  state = BotState.AwaitingListingType,
+                  state = BotState.BrokerAwaitingListingType,
                   updatedAt = now,
                 )
               }
@@ -1393,7 +1569,7 @@ object TelegramBotAlgebra {
         msg.senderChat match {
           case Some(chat) =>
             // This is a forwarded message from a channel
-            val context = AdminPostingContext(
+            val adminContext = AdminPostingContext(
               forwardedMessage = ForwardedMessage(
                 text = msg.text,
                 images = List.empty, // TODO: Extract images from forwarded message
@@ -1410,14 +1586,24 @@ object TelegramBotAlgebra {
               buildingType = None,
               condition = None,
               selectedChannelId = Some(chat.id),
-              step = 1,
             )
 
             val confirmText = BotMessages.ADMIN_POST_CONFIRM(user.languageCode)
 
             for {
+              now <- Calendar[F].currentZonedDateTime
+              botContext = BotContext(
+                mode = BotMode.Broker,
+                broker = Some(BrokerFlowContext(adminContext, BrokerStep.Confirmation)),
+              )
               _ <- sessionsRepo
-                .updateState(user.telegramId, BotState.Registering, Some(context.asJson))
+                .updateState(user.telegramId) { s =>
+                  s.copy(
+                    state = BotState.BrokerAwaitingConfirmation,
+                    context = Some(botContext.asJson),
+                    updatedAt = now,
+                  ).pure[ConnectionIO]
+                }
                 .transact(xa)
               _ <- Methods
                 .sendMessage(
@@ -1446,8 +1632,10 @@ object TelegramBotAlgebra {
           case None =>
             // Not a forwarded message, check if user is in admin posting flow
             session.state match {
-              case BotState.Registering =>
-                Logger[F].debug("User is in admin posting flow but received non-forwarded message")
+              case BotState.BrokerAwaitingConfirmation =>
+                Logger[F].debug(
+                  "User is in broker confirmation flow but received non-forwarded message"
+                )
               case _ =>
                 Logger[F].debug(s"Ignoring non-forwarded message from user ${user.telegramId}")
             }
@@ -1478,8 +1666,8 @@ object TelegramBotAlgebra {
               updateAdminContextAndNextStep(
                 user.telegramId,
                 msg.chat.id,
-                _.copy(listingType = Some(lt), step = 2),
-                BotState.AwaitingPrice,
+                _.copy(listingType = Some(lt)),
+                BotState.BrokerAwaitingPrice,
                 user.languageCode,
               )
             case None =>
@@ -1505,8 +1693,8 @@ object TelegramBotAlgebra {
             updateAdminContextAndNextStep(
               user.telegramId,
               msg.chat.id,
-              _.copy(price = Some(BigDecimal(price)), step = 3),
-              BotState.AwaitingCityForPosting,
+              _.copy(price = Some(BigDecimal(price))),
+              BotState.BrokerAwaitingCity,
               user.languageCode,
             )
           case None =>
@@ -1530,8 +1718,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(city = Some(city), step = 4),
-          BotState.AwaitingRooms,
+          _.copy(city = Some(city)),
+          BotState.BrokerAwaitingRooms,
           user.languageCode,
         )
       else {
@@ -1555,8 +1743,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(rooms = None, step = 5),
-          BotState.AwaitingPhone,
+          _.copy(rooms = None),
+          BotState.BrokerAwaitingPhone,
           user.languageCode,
         )
       else
@@ -1565,8 +1753,8 @@ object TelegramBotAlgebra {
             updateAdminContextAndNextStep(
               user.telegramId,
               msg.chat.id,
-              _.copy(rooms = Some(rooms), step = 5),
-              BotState.AwaitingPhone,
+              _.copy(rooms = Some(rooms)),
+              BotState.BrokerAwaitingPhone,
               user.languageCode,
             )
           case _ =>
@@ -1590,8 +1778,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(phone = Some(phone), step = 6),
-          BotState.AwaitingDistrict,
+          _.copy(phone = Some(phone)),
+          BotState.BrokerAwaitingDistrict,
           user.languageCode,
         )
       else {
@@ -1615,8 +1803,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(district = None, step = 7),
-          BotState.AwaitingFloor,
+          _.copy(district = None),
+          BotState.BrokerAwaitingFloor,
           user.languageCode,
         )
       else {
@@ -1625,8 +1813,8 @@ object TelegramBotAlgebra {
           updateAdminContextAndNextStep(
             user.telegramId,
             msg.chat.id,
-            _.copy(district = Some(district), step = 7),
-            BotState.AwaitingFloor,
+            _.copy(district = Some(district)),
+            BotState.BrokerAwaitingFloor,
             user.languageCode,
           )
         else {
@@ -1651,8 +1839,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(floor = None, step = 8),
-          BotState.AwaitingTotalFloors,
+          _.copy(floor = None),
+          BotState.BrokerAwaitingTotalFloors,
           user.languageCode,
         )
       else
@@ -1661,8 +1849,8 @@ object TelegramBotAlgebra {
             updateAdminContextAndNextStep(
               user.telegramId,
               msg.chat.id,
-              _.copy(floor = Some(floor), step = 8),
-              BotState.AwaitingTotalFloors,
+              _.copy(floor = Some(floor)),
+              BotState.BrokerAwaitingTotalFloors,
               user.languageCode,
             )
           case _ =>
@@ -1686,8 +1874,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(totalFloors = None, step = 9),
-          BotState.AwaitingBuildingType,
+          _.copy(totalFloors = None),
+          BotState.BrokerAwaitingBuildingType,
           user.languageCode,
         )
       else
@@ -1696,8 +1884,8 @@ object TelegramBotAlgebra {
             updateAdminContextAndNextStep(
               user.telegramId,
               msg.chat.id,
-              _.copy(totalFloors = Some(totalFloors), step = 9),
-              BotState.AwaitingBuildingType,
+              _.copy(totalFloors = Some(totalFloors)),
+              BotState.BrokerAwaitingBuildingType,
               user.languageCode,
             )
           case _ =>
@@ -1721,8 +1909,8 @@ object TelegramBotAlgebra {
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
-          _.copy(buildingType = None, step = 10),
-          BotState.AwaitingCondition,
+          _.copy(buildingType = None),
+          BotState.BrokerAwaitingCondition,
           user.languageCode,
         )
       else {
@@ -1738,8 +1926,8 @@ object TelegramBotAlgebra {
             updateAdminContextAndNextStep(
               user.telegramId,
               msg.chat.id,
-              _.copy(buildingType = Some(bt), step = 10),
-              BotState.AwaitingCondition,
+              _.copy(buildingType = Some(bt)),
+              BotState.BrokerAwaitingCondition,
               user.languageCode,
             )
           case None =>
@@ -1776,8 +1964,8 @@ object TelegramBotAlgebra {
             updateAdminContextAndNextStep(
               user.telegramId,
               msg.chat.id,
-              _.copy(condition = Some(c), step = 11),
-              BotState.AwaitingConfirmation,
+              _.copy(condition = Some(c)),
+              BotState.BrokerAwaitingConfirmation,
               user.languageCode,
             )
           case None =>
@@ -1806,9 +1994,9 @@ object TelegramBotAlgebra {
 
           result <- botContext match {
             case Some(context) =>
-              context.draftListing match {
-                case Some(adminContext) =>
-                  adminContext.selectedChannelId match {
+              context.broker match {
+                case Some(brokerFlow) =>
+                  brokerFlow.draft.selectedChannelId match {
                     case Some(channelId) =>
                       checkAndCreateListing(
                         telegramId = user.telegramId,
@@ -1817,7 +2005,7 @@ object TelegramBotAlgebra {
                           .getOrElse(
                             throw new RuntimeException("No user ID found for telegram user")
                           ),
-                        context = adminContext,
+                        context = brokerFlow.draft,
                         chatId = msg.chat.id,
                         lang = user.languageCode,
                       )
@@ -1879,7 +2067,7 @@ object TelegramBotAlgebra {
             user.telegramId,
             msg.chat.id,
             _.copy(selectedChannelId = Some(id)),
-            BotState.AwaitingListingType,
+            BotState.BrokerAwaitingListingType,
             user.languageCode,
           )
         case None =>
@@ -1909,28 +2097,22 @@ object TelegramBotAlgebra {
                   _.decodeAsF[ConnectionIO, BotContext]
                 )
                 .map { context =>
-                  val adminContext = context
-                    .draftListing
+                  val brokerFlow = context
+                    .broker
                     .getOrElse(
-                      AdminPostingContext(
-                        forwardedMessage = ForwardedMessage(None, List.empty, None),
-                        listingType = None,
-                        price = None,
-                        city = None,
-                        rooms = None,
-                        phone = None,
-                        district = None,
-                        floor = None,
-                        totalFloors = None,
-                        buildingType = None,
-                        condition = None,
-                        selectedChannelId = None,
+                      BrokerFlowContext(
+                        draft = AdminPostingContext(
+                          forwardedMessage = ForwardedMessage(None, List.empty, None)
+                        ),
+                        currentStep = BrokerStep.Start,
                       )
                     )
-                  val updatedAdminContext = updateFn(adminContext)
+                  val updatedDraft = updateFn(brokerFlow.draft)
                   session.copy(
                     state = nextState,
-                    context = Some(context.copy(draftListing = Some(updatedAdminContext)).asJson),
+                    context = Some(
+                      context.copy(broker = Some(brokerFlow.copy(draft = updatedDraft))).asJson
+                    ),
                     updatedAt = now,
                   )
                 }
@@ -1938,26 +2120,47 @@ object TelegramBotAlgebra {
           }
           .transact(xa)
 
-        promptText = getNextStepPrompt(nextState, lang)
+        (promptText, keyboard) = getNextStepPromptAndKeyboard(nextState, lang)
         _ <- Methods
-          .sendMessage(chatId = ChatIntId(chatId), text = promptText)
+          .sendMessage(
+            chatId = ChatIntId(chatId),
+            text = promptText,
+            replyMarkup = keyboard,
+          )
           .exec(api)
           .void
       } yield ()
 
-    private def getNextStepPrompt(state: BotState, lang: Language): String =
+    private def getNextStepPromptAndKeyboard(
+        state: BotState,
+        lang: Language,
+      ): (String, Option[InlineKeyboardMarkup]) =
       state match {
-        case BotState.AwaitingListingType => BotMessages.PROMPT_LISTING_TYPE(lang)
-        case BotState.AwaitingPrice => BotMessages.PROMPT_PRICE(lang)
-        case BotState.AwaitingCityForPosting => BotMessages.PROMPT_CITY(lang)
-        case BotState.AwaitingRooms => BotMessages.PROMPT_ROOMS(lang)
-        case BotState.AwaitingPhone => BotMessages.PROMPT_PHONE(lang)
-        case BotState.AwaitingDistrict => BotMessages.PROMPT_DISTRICT(lang)
-        case BotState.AwaitingFloor => BotMessages.PROMPT_FLOOR(lang)
-        case BotState.AwaitingTotalFloors => BotMessages.PROMPT_TOTAL_FLOORS(lang)
-        case BotState.AwaitingBuildingType => BotMessages.PROMPT_BUILDING_TYPE(lang)
-        case BotState.AwaitingCondition => BotMessages.PROMPT_CONDITION(lang)
-        case _ => ""
+        case BotState.BrokerAwaitingPrice =>
+          BotMessages.PROMPT_PRICE_BUTTON(lang) -> Some(TelegramKeyboards.priceKeyboard(lang))
+        case BotState.BrokerAwaitingCity =>
+          BotMessages.PROMPT_CITY_BUTTON(lang) -> Some(TelegramKeyboards.cityKeyboard(lang))
+        case BotState.BrokerAwaitingRooms =>
+          BotMessages.PROMPT_ROOMS(lang) -> Some(TelegramKeyboards.roomsSelectionKeyboard(lang))
+        case BotState.BrokerAwaitingPhone =>
+          BotMessages.PROMPT_PHONE_BUTTON(lang) -> Some(TelegramKeyboards.phoneKeyboard(lang))
+        case BotState.BrokerAwaitingDistrict =>
+          BotMessages.PROMPT_DISTRICT_BUTTON(lang) -> Some(TelegramKeyboards.districtKeyboard(lang))
+        case BotState.BrokerAwaitingFloor =>
+          BotMessages.PROMPT_FLOOR_BUTTON(lang) -> Some(TelegramKeyboards.floorKeyboard(lang))
+        case BotState.BrokerAwaitingTotalFloors =>
+          BotMessages.PROMPT_TOTAL_FLOORS_BUTTON(lang) -> Some(
+            TelegramKeyboards.totalFloorsKeyboard(lang)
+          )
+        case BotState.BrokerAwaitingBuildingType =>
+          BotMessages.PROMPT_BUILDING_TYPE_BUTTON(lang) -> Some(
+            TelegramKeyboards.buildingTypeKeyboard(lang)
+          )
+        case BotState.BrokerAwaitingCondition =>
+          BotMessages.PROMPT_CONDITION_BUTTON(lang) -> Some(
+            TelegramKeyboards.conditionKeyboard(lang)
+          )
+        case _ => "" -> None
       }
 
     private def showListingPreview(
@@ -1972,24 +2175,17 @@ object TelegramBotAlgebra {
           .traverse(_.decodeAsF[F, BotContext])
           .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
 
-        context = botContext
-          .draftListing
+        brokerFlow = botContext
+          .broker
           .getOrElse(
-            AdminPostingContext(
-              forwardedMessage = ForwardedMessage(None, List.empty, None),
-              listingType = None,
-              price = None,
-              city = None,
-              rooms = None,
-              phone = None,
-              district = None,
-              floor = None,
-              totalFloors = None,
-              buildingType = None,
-              condition = None,
-              selectedChannelId = None,
+            BrokerFlowContext(
+              draft = AdminPostingContext(
+                forwardedMessage = ForwardedMessage(None, List.empty, None)
+              ),
+              currentStep = BrokerStep.Start,
             )
           )
+        context = brokerFlow.draft
 
         previewText = formatPreviewText(context, lang)
 
@@ -1997,15 +2193,15 @@ object TelegramBotAlgebra {
           .updateState(telegramId) { session =>
             session
               .context
-              .fold(BotContext(BotMode.Buyer).pure[ConnectionIO])(
+              .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
                 _.decodeAsF[ConnectionIO, BotContext]
               )
               .map { ctx =>
-                ctx.copy(draftListing = Some(context))
+                ctx.copy(broker = Some(brokerFlow.copy(draft = context)))
               }
               .map { updatedContext =>
                 session.copy(
-                  state = BotState.AwaitingConfirmation,
+                  state = BotState.BrokerAwaitingConfirmation,
                   context = Some(updatedContext.asJson),
                 )
               }
@@ -2044,7 +2240,7 @@ object TelegramBotAlgebra {
           .flatMap(_.context)
           .traverse(_.decodeAsF[F, BotContext])
 
-        _ <- botContextOpt.flatMap(_.draftListing) match {
+        _ <- botContextOpt.flatMap(_.broker.map(_.draft)) match {
           case Some(context) =>
             // Check if admin has linked user account
             user.userId match {
@@ -2109,10 +2305,113 @@ object TelegramBotAlgebra {
           telegramId = user.telegramId,
           chatId = msg.chat.id,
           updateFn = _.copy(listingType = Some(listingType)),
-          nextState = BotState.AwaitingPrice,
+          nextState = BotState.BrokerAwaitingPrice,
           lang = user.languageCode,
         )
       } yield ()
+
+    // ============================================================
+    // BROKER POSTING - BUTTON-FIRST UX HANDLERS
+    // ============================================================
+
+    private def handlePricePostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        price: Option[BigDecimal],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(price = price),
+        nextState = BotState.BrokerAwaitingCity,
+        lang = user.languageCode,
+      )
+
+    private def handleCityPostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        city: Option[String],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(city = city),
+        nextState = BotState.BrokerAwaitingRooms,
+        lang = user.languageCode,
+      )
+
+    private def handlePhonePostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        phone: Option[String],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(phone = phone),
+        nextState = BotState.BrokerAwaitingDistrict,
+        lang = user.languageCode,
+      )
+
+    private def handleDistrictPostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        district: Option[String],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(district = district),
+        nextState = BotState.BrokerAwaitingFloor,
+        lang = user.languageCode,
+      )
+
+    private def handleFloorPostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        floor: Option[Int],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(floor = floor),
+        nextState = BotState.BrokerAwaitingTotalFloors,
+        lang = user.languageCode,
+      )
+
+    private def handleTotalFloorsPostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        totalFloors: Option[Int],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(totalFloors = totalFloors),
+        nextState = BotState.BrokerAwaitingBuildingType,
+        lang = user.languageCode,
+      )
+
+    private def handleBuildingTypePostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        buildingType: Option[String],
+      ): F[Unit] =
+      updateAdminContextAndNextStep(
+        telegramId = user.telegramId,
+        chatId = msg.chat.id,
+        updateFn = _.copy(buildingType = buildingType),
+        nextState = BotState.BrokerAwaitingCondition,
+        lang = user.languageCode,
+      )
+
+    private def handleConditionPostingSelection(
+        msg: Message,
+        user: dto.TelegramUser,
+        condition: Option[String],
+      ): F[Unit] =
+      // All fields collected, show preview
+      showListingPreview(user.telegramId, msg.chat.id, user.languageCode)
 
     private def handleAdminPostCancel(msg: Message, user: dto.TelegramUser): F[Unit] = {
 

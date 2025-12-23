@@ -11,6 +11,7 @@ case class TelegramUser(
     username: Option[String],
     firstName: String,
     languageCode: Language,
+    phoneNumber: Option[String],
     isRegistered: Boolean,
     createdAt: ZonedDateTime,
     lastInteractionAt: ZonedDateTime,

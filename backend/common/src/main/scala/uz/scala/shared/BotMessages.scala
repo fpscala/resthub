@@ -248,16 +248,28 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "E'lon turi (Ijaraga/Sotiladi):",
   )
 
-  val PROMPT_PRICE: Map[Language, String] = Map(
-    En -> "Price (USD):",
-    Ru -> "Цена (USD):",
-    Uz -> "Narx (USD):",
+  val PROMPT_PRICE_BUTTON: Map[Language, String] = Map(
+    En -> "Select a price or enter custom amount:",
+    Ru -> "Выберите цену или введите свою:",
+    Uz -> "Narxni tanlang yoki boshqa summa kiriting:",
   )
 
-  val PROMPT_CITY: Map[Language, String] = Map(
-    En -> "City:",
-    Ru -> "Город:",
-    Uz -> "Shahar:",
+  val PROMPT_PRICE_CUSTOM: Map[Language, String] = Map(
+    En -> "Enter price (USD):",
+    Ru -> "Введите цену (USD):",
+    Uz -> "Narxni kiriting (USD):",
+  )
+
+  val PROMPT_CITY_BUTTON: Map[Language, String] = Map(
+    En -> "Select your city:",
+    Ru -> "Выберите ваш город:",
+    Uz -> "Shaharni tanlang:",
+  )
+
+  val PROMPT_CITY_CUSTOM: Map[Language, String] = Map(
+    En -> "Enter city name:",
+    Ru -> "Введите название города:",
+    Uz -> "Shahar nomini kiriting:",
   )
 
   val PROMPT_ROOMS: Map[Language, String] = Map(
@@ -272,10 +284,40 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Telefon raqami:",
   )
 
+  val PROMPT_PHONE_BUTTON: Map[Language, String] = Map(
+    En -> "Share your phone number:",
+    Ru -> "Поделитесь номером телефона:",
+    Uz -> "Telefon raqamingizni yuboring:",
+  )
+
+  val SHARE_CONTACT_BUTTON: Map[Language, String] = Map(
+    En -> "📲 Share Contact",
+    Ru -> "📲 Отправить контакт",
+    Uz -> "📲 Kontakt yuborish",
+  )
+
+  val PROMPT_PHONE_MANUAL: Map[Language, String] = Map(
+    En -> "Enter phone number (e.g., +998901234567):",
+    Ru -> "Введите номер (например, +998901234567):",
+    Uz -> "Telefon raqamini kiriting (masalan, +998901234567):",
+  )
+
   val PROMPT_DISTRICT: Map[Language, String] = Map(
     En -> "District (or 'skip'):",
     Ru -> "Район (или 'пропустить'):",
     Uz -> "Tuman (yoki 'skip'):",
+  )
+
+  val PROMPT_DISTRICT_BUTTON: Map[Language, String] = Map(
+    En -> "Select your district:",
+    Ru -> "Выберите ваш район:",
+    Uz -> "Tumanni tanlang:",
+  )
+
+  val PROMPT_DISTRICT_CUSTOM: Map[Language, String] = Map(
+    En -> "Enter district name:",
+    Ru -> "Введите название района:",
+    Uz -> "Tuman nomini kiriting:",
   )
 
   val PROMPT_FLOOR: Map[Language, String] = Map(
@@ -284,10 +326,22 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Qavat (yoki 'skip'):",
   )
 
+  val PROMPT_FLOOR_BUTTON: Map[Language, String] = Map(
+    En -> "Select floor:",
+    Ru -> "Выберите этаж:",
+    Uz -> "Qavatni tanlang:",
+  )
+
   val PROMPT_TOTAL_FLOORS: Map[Language, String] = Map(
     En -> "Total floors (or 'skip'):",
     Ru -> "Всего этажей (или 'пропустить'):",
     Uz -> "Umumiy qavatlar (yoki 'skip'):",
+  )
+
+  val PROMPT_TOTAL_FLOORS_BUTTON: Map[Language, String] = Map(
+    En -> "Select total floors:",
+    Ru -> "Выберите всего этажей:",
+    Uz -> "Jami qavatlar sonini tanlang:",
   )
 
   val PROMPT_BUILDING_TYPE: Map[Language, String] = Map(
@@ -296,10 +350,22 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Bino turi - Kvartira/Hovli/Ofis (yoki 'skip'):",
   )
 
+  val PROMPT_BUILDING_TYPE_BUTTON: Map[Language, String] = Map(
+    En -> "Select building type:",
+    Ru -> "Выберите тип здания:",
+    Uz -> "Bino turini tanlang:",
+  )
+
   val PROMPT_CONDITION: Map[Language, String] = Map(
-    En -> "Condition - Yaxshi/Zo‘r/Ta'mirlangan (or 'skip'):",
+    En -> "Condition - Yaxshi/Zo'r/Ta'mirlangan (or 'skip'):",
     Ru -> "Состояние - Хороший/Отличный/Ремонт (или 'пропустить'):",
-    Uz -> "Holati - Yaxshi/Zo‘r/Ta'mirlangan (yoki 'skip'):",
+    Uz -> "Holati - Yaxshi/Zo'r/Ta'mirlangan (yoki 'skip'):",
+  )
+
+  val PROMPT_CONDITION_BUTTON: Map[Language, String] = Map(
+    En -> "Select condition:",
+    Ru -> "Выберите состояние:",
+    Uz -> "Holatni tanlang:",
   )
 
   // Error messages for validation

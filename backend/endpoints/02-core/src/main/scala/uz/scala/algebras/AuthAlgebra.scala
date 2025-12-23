@@ -108,8 +108,15 @@ object AuthAlgebra {
         generatedPassword = s"tg_${telegramUser.telegramId}_${System.currentTimeMillis()}"
         hashedPassword <- SCrypt.hashpw[F](generatedPassword)
 
-        // Create valid phone number (+998 + 9 digits)
-        phoneDigits = s"${telegramUser.telegramId}".take(9).padTo(9, '0')
+        // Use phone number from Telegram if available, otherwise generate default
+        phoneNumber = telegramUser.phoneNumber match {
+          case Some(phone) if phone.nonEmpty && phone.startsWith("+") =>
+            phone
+          case _ =>
+            // Generate default phone number from telegramId
+            val phoneDigits = s"${telegramUser.telegramId}".take(9).padTo(9, '0')
+            s"+998$phoneDigits"
+        }
 
         // Get USER role ID
         userRole <- rolesRepository.getRoleByName("USER").transact(xa)
@@ -124,7 +131,7 @@ object AuthAlgebra {
           password = hashedPassword,
           firstName = telegramUser.firstName,
           lastName = "Telegram",
-          phone = s"+998$phoneDigits",
+          phone = phoneNumber,
           roleId = userRole.id,
           status = UserStatus.Active,
           lastLoginAt = Some(now),

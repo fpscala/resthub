@@ -6,27 +6,36 @@ import enumeratum.EnumEntry.UpperSnakecase
 sealed trait BotState extends EnumEntry with UpperSnakecase
 
 object BotState extends Enum[BotState] with CirceEnum[BotState] with DoobieEnum[BotState] {
+  // ============================================================
+  // SHARED STATE
+  // ============================================================
   case object Idle extends BotState
+
+  // ============================================================
+  // BUYER SEARCH STATES (ONLY USED IN BUYER MODE)
+  // ============================================================
   case object AwaitingCity extends BotState
   case object AwaitingPriceRange extends BotState
   case object AwaitingCustomCity extends BotState
   case object AwaitingCustomPriceMin extends BotState
   case object AwaitingCustomPriceMax extends BotState
   case object ViewingResults extends BotState
-  case object Registering extends BotState
-  // Admin posting states
-  case object AwaitingListingType extends BotState
-  case object AwaitingPrice extends BotState
-  case object AwaitingCityForPosting extends BotState
-  case object AwaitingRooms extends BotState
-  case object AwaitingPhone extends BotState
-  case object AwaitingDistrict extends BotState
-  case object AwaitingFloor extends BotState
-  case object AwaitingTotalFloors extends BotState
-  case object AwaitingBuildingType extends BotState
-  case object AwaitingCondition extends BotState
-  case object AwaitingConfirmation extends BotState
-  case object AwaitingChannelSelection extends BotState
+
+  // ============================================================
+  // BROKER POSTING STATES (ONLY USED IN BROKER MODE)
+  // ============================================================
+  case object BrokerAwaitingListingType extends BotState
+  case object BrokerAwaitingPrice extends BotState
+  case object BrokerAwaitingCity extends BotState
+  case object BrokerAwaitingRooms extends BotState
+  case object BrokerAwaitingPhone extends BotState
+  case object BrokerAwaitingDistrict extends BotState
+  case object BrokerAwaitingFloor extends BotState
+  case object BrokerAwaitingTotalFloors extends BotState
+  case object BrokerAwaitingBuildingType extends BotState
+  case object BrokerAwaitingCondition extends BotState
+  case object BrokerAwaitingConfirmation extends BotState
+  case object BrokerAwaitingChannelSelection extends BotState
 
   val values: IndexedSeq[BotState] = findValues
 }

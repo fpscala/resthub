@@ -8,11 +8,13 @@ import doobie.implicits._
 import io.circe.syntax._
 import org.typelevel.log4cats.Logger
 import telegramium.bots.ChatIntId
+import telegramium.bots.Contact
 import telegramium.bots.Html
 import telegramium.bots.InlineKeyboardButton
 import telegramium.bots.InlineKeyboardMarkup
 import telegramium.bots.InputLinkFile
 import telegramium.bots.Message
+import telegramium.bots.PhotoSize
 import telegramium.bots.Update
 import telegramium.bots.high.Api
 import telegramium.bots.high.Methods
@@ -42,6 +44,7 @@ import uz.scala.shared.BotMessages.LISTING_PREVIEW_HEADER
 import uz.scala.shared.TelegramKeyboards
 import uz.scala.syntax.all.circeSyntaxJsonDecoderOps
 import uz.scala.syntax.option._
+import eu.timepit.refined.types.string.NonEmptyString
 import uz.scala.syntax.refined._
 import uz.scala.utils.ID
 
@@ -111,14 +114,24 @@ object TelegramBotAlgebra {
             // Update last interaction
             _ <- usersRepo.updateLastInteraction(user.telegramId).transact(xa)
 
-            // Route based on message text or session state
+            // Route based on message text, contact, photo, or session state
             _ <- msg.text match {
               case Some("/start") => handleStartCommand(msg, user)
               case Some("/search") => handleSearchCommand(msg, user)
               case Some("/help") => handleHelpCommand(msg, user)
               case Some("/postadmin") => handleAdminPostingCommand(msg, user)
               case Some(text) => handleStateBasedMessage(msg, user, session, text)
-              case None => handleForwardedMessage(msg, user, session)
+              case None =>
+                // Check for contact (shared phone number via Telegram button)
+                msg.contact match {
+                  case Some(contact) => handleContactMessage(msg, user, contact)
+                  case None =>
+                    // Check for photos (image upload in broker flow)
+                    msg.photo match {
+                      case photos if photos.nonEmpty => handlePhotoMessage(msg, user, photos)
+                      case _ => handleForwardedMessage(msg, user, session)
+                    }
+                }
             }
           } yield ()
 
@@ -355,6 +368,13 @@ object TelegramBotAlgebra {
                   .void
               } yield ()
             case "skip" => handlePhonePostingSelection(msg, user, None)
+          }
+
+        // Images upload callbacks
+        case imagesData if imagesData.startsWith("images_") =>
+          imagesData.stripPrefix("images_") match {
+            case "done" => handleImagesDone(msg, user)
+            case "skip" => handleImagesSkip(msg, user)
           }
 
         // District selection
@@ -883,6 +903,7 @@ object TelegramBotAlgebra {
                 case BotState.BrokerAwaitingCity => handleCityForPostingInput(msg, user, text)
                 case BotState.BrokerAwaitingRooms => handleRoomsInput(msg, user, text)
                 case BotState.BrokerAwaitingPhone => handlePhoneInput(msg, user, text)
+                case BotState.BrokerAwaitingImages => handleImagesTextInput(msg, user, text)
                 case BotState.BrokerAwaitingDistrict => handleDistrictInput(msg, user, text)
                 case BotState.BrokerAwaitingFloor => handleFloorInput(msg, user, text)
                 case BotState.BrokerAwaitingTotalFloors => handleTotalFloorsInput(msg, user, text)
@@ -1565,79 +1586,96 @@ object TelegramBotAlgebra {
       checkUserMode(
         user.telegramId,
         BotMode.Broker,
-        // Check if this is a forwarded message
-        msg.senderChat match {
-          case Some(chat) =>
-            // This is a forwarded message from a channel
-            val adminContext = AdminPostingContext(
-              forwardedMessage = ForwardedMessage(
-                text = msg.text,
-                images = List.empty, // TODO: Extract images from forwarded message
-                originalAuthor = chat.title,
-              ),
-              listingType = None,
-              price = None,
-              city = None,
-              rooms = None,
-              phone = None,
-              district = None,
-              floor = None,
-              totalFloors = None,
-              buildingType = None,
-              condition = None,
-              selectedChannelId = Some(chat.id),
-            )
-
-            val confirmText = BotMessages.ADMIN_POST_CONFIRM(user.languageCode)
-
-            for {
-              now <- Calendar[F].currentZonedDateTime
-              botContext = BotContext(
-                mode = BotMode.Broker,
-                broker = Some(BrokerFlowContext(adminContext, BrokerStep.Confirmation)),
-              )
-              _ <- sessionsRepo
-                .updateState(user.telegramId) { s =>
-                  s.copy(
-                    state = BotState.BrokerAwaitingConfirmation,
-                    context = Some(botContext.asJson),
-                    updatedAt = now,
-                  ).pure[ConnectionIO]
-                }
-                .transact(xa)
-              _ <- Methods
-                .sendMessage(
-                  chatId = ChatIntId(msg.chat.id),
-                  text = confirmText,
-                  replyMarkup = Some(
-                    InlineKeyboardMarkup(
-                      List(
-                        List(
-                          InlineKeyboardButton(
-                            BotMessages.BUTTON_CONFIRM_POST(user.languageCode),
-                            callbackData = Some("admin_post_confirm"),
-                          ),
-                          InlineKeyboardButton(
-                            BotMessages.BUTTON_CANCEL_POST(user.languageCode),
-                            callbackData = Some("admin_post_cancel"),
-                          ),
-                        )
-                      )
-                    )
+        // Check if we're in channel selection state - extract channel ID from forwarded message
+        session.state match {
+          case BotState.BrokerAwaitingChannelSelection =>
+            msg.senderChat match {
+              case Some(chat) =>
+                // User forwarded a message from a channel - use it as target channel
+                Logger[F].info(s"User forwarded message from channel ${chat.id} (${chat.title})") *>
+                  postToChannelAndSave(msg, user, chat.id)
+              case None =>
+                val errorText = BotMessages.ERROR_INVALID_CHANNEL_ID(user.languageCode)
+                Methods
+                  .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
+                  .exec(api)
+                  .void
+            }
+          case _ =>
+            // Check if this is a forwarded message to start new listing
+            msg.senderChat match {
+              case Some(chat) =>
+                // This is a forwarded message from a channel - start new listing
+                val adminContext = AdminPostingContext(
+                  forwardedMessage = ForwardedMessage(
+                    text = msg.text,
+                    images = List.empty,
+                    originalAuthor = chat.title,
                   ),
+                  listingType = None,
+                  price = None,
+                  city = None,
+                  rooms = None,
+                  phone = None,
+                  district = None,
+                  floor = None,
+                  totalFloors = None,
+                  buildingType = None,
+                  condition = None,
+                  selectedChannelId = Some(chat.id),
                 )
-                .exec(api)
-                .void
-            } yield ()
-          case None =>
-            // Not a forwarded message, check if user is in admin posting flow
-            session.state match {
-              case BotState.BrokerAwaitingConfirmation =>
-                Logger[F].debug(
-                  "User is in broker confirmation flow but received non-forwarded message"
-                )
-              case _ =>
-                Logger[F].debug(s"Ignoring non-forwarded message from user ${user.telegramId}")
+
+                val confirmText = BotMessages.ADMIN_POST_CONFIRM(user.languageCode)
+
+                for {
+                  now <- Calendar[F].currentZonedDateTime
+                  botContext = BotContext(
+                    mode = BotMode.Broker,
+                    broker = Some(BrokerFlowContext(adminContext, BrokerStep.Confirmation)),
+                  )
+                  _ <- sessionsRepo
+                    .updateState(user.telegramId) { s =>
+                      s.copy(
+                        state = BotState.BrokerAwaitingConfirmation,
+                        context = Some(botContext.asJson),
+                        updatedAt = now,
+                      ).pure[ConnectionIO]
+                    }
+                    .transact(xa)
+                  _ <- Methods
+                    .sendMessage(
+                      chatId = ChatIntId(msg.chat.id),
+                      text = confirmText,
+                      replyMarkup = Some(
+                        InlineKeyboardMarkup(
+                          List(
+                            List(
+                              InlineKeyboardButton(
+                                BotMessages.BUTTON_CONFIRM_POST(user.languageCode),
+                                callbackData = Some("admin_post_confirm"),
+                              ),
+                              InlineKeyboardButton(
+                                BotMessages.BUTTON_CANCEL_POST(user.languageCode),
+                                callbackData = Some("admin_post_cancel"),
+                              ),
+                            )
+                          )
+                        )
+                      ),
+                    )
+                    .exec(api)
+                    .void
+                } yield ()
+              case None =>
+                // Not a forwarded message, check if user is in admin posting flow
+                session.state match {
+                  case BotState.BrokerAwaitingConfirmation =>
+                    Logger[F].debug(
+                      "User is in broker confirmation flow but received non-forwarded message"
+                    )
+                  case _ =>
+                    Logger[F].debug(s"Ignoring non-forwarded message from user ${user.telegramId}")
+                }
             }
         },
       )
@@ -1779,7 +1817,7 @@ object TelegramBotAlgebra {
           user.telegramId,
           msg.chat.id,
           _.copy(phone = Some(phone)),
-          BotState.BrokerAwaitingDistrict,
+          BotState.BrokerAwaitingImages,  // Changed: Phone → Images (not District)
           user.languageCode,
         )
       else {
@@ -1790,6 +1828,217 @@ object TelegramBotAlgebra {
           .void
       }
     }
+
+    // Handle phone number shared via Telegram contact button
+    private def handleContactMessage(
+        msg: Message,
+        user: dto.TelegramUser,
+        contact: Contact,
+      ): F[Unit] = {
+      // Extract and normalize phone from contact
+      val phone = contact.phoneNumber.replaceAll("[^0-9+]", "")
+      val normalizedPhone = if (phone.startsWith("+")) phone else s"+$phone"
+
+      // Always save phone to telegram_users table (this is valuable user data)
+      val savePhoneToTelegramUsers = for {
+        _ <- Logger[F].info(s"Saving contact phone to telegram_users: $normalizedPhone for user ${user.telegramId}")
+        _ <- usersRepo.updatePhoneNumber(user.telegramId, normalizedPhone).transact(xa)
+      } yield ()
+
+      // Verify we're in BROKER mode awaiting phone for flow continuation
+      sessionsRepo.findByTelegramId(user.telegramId).transact(xa).flatMap {
+        case Some(session) if session.state == BotState.BrokerAwaitingPhone =>
+          for {
+            // Save phone to telegram_users table
+            _ <- savePhoneToTelegramUsers
+            _ <- Logger[F].info(s"Received contact phone: $normalizedPhone for user ${user.telegramId}")
+            // Remove the contact keyboard
+            _ <- Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = BotMessages.PHONE_RECEIVED(user.languageCode, normalizedPhone),
+                replyMarkup = Some(telegramium.bots.ReplyKeyboardRemove(removeKeyboard = true)),
+              )
+              .exec(api)
+              .void
+            // Update context and move to next step (Phone → Images)
+            _ <- updateAdminContextAndNextStep(
+              user.telegramId,
+              msg.chat.id,
+              _.copy(phone = Some(normalizedPhone)),
+              BotState.BrokerAwaitingImages,  // Changed: Phone → Images (not District)
+              user.languageCode,
+            )
+          } yield ()
+        case Some(_) =>
+          // Not in phone awaiting state - but still save the phone for future use
+          for {
+            _ <- savePhoneToTelegramUsers
+            _ <- Logger[F].debug(
+              s"Contact received but not in BrokerAwaitingPhone state for user ${user.telegramId}. Phone saved."
+            )
+          } yield ()
+        case None =>
+          Logger[F].warn(s"No session found for user ${user.telegramId} when handling contact")
+      }
+    }
+
+    // Handle photo message (image upload in broker flow)
+    private def handlePhotoMessage(
+        msg: Message,
+        user: dto.TelegramUser,
+        photos: List[PhotoSize],
+      ): F[Unit] =
+      // Verify we're in BROKER mode awaiting images
+      sessionsRepo.findByTelegramId(user.telegramId).transact(xa).flatMap {
+        case Some(session) if session.state == BotState.BrokerAwaitingImages =>
+          // Get the largest photo (last in the list - Telegram provides multiple sizes)
+          val largestPhoto: Option[PhotoSize] = photos.maxByOption { (p: PhotoSize) =>
+            p.fileSize.getOrElse(0L)
+          }
+          largestPhoto match {
+            case Some(photo) =>
+              for {
+                // Get current context to count existing images
+                botContext <- session.context
+                  .flatTraverse(_.decodeAsF[F, BotContext].map(_.some))
+                  .handleError(_ => None)
+                currentImages = botContext
+                  .flatMap(_.broker)
+                  .map(_.draft.forwardedMessage.images)
+                  .getOrElse(List.empty)
+
+                _ <- if (currentImages.size >= 10) {
+                  // Too many images - show error
+                  Methods
+                    .sendMessage(
+                      chatId = ChatIntId(msg.chat.id),
+                      text = BotMessages.ERROR_TOO_MANY_IMAGES(user.languageCode),
+                    )
+                    .exec(api)
+                    .void
+                }
+                else {
+                  // Add photo file_id to the list
+                  val fileId: String = photo.fileId
+                  val newImages = currentImages :+ fileId
+                  for {
+                    _ <- Logger[F].info(s"Photo received for user ${user.telegramId}, total images: ${newImages.size}")
+                    // Update context with new image (preserving other fields)
+                    _ <- updateBrokerContextImages(user.telegramId, newImages)
+                    // Send confirmation
+                    _ <- Methods
+                      .sendMessage(
+                        chatId = ChatIntId(msg.chat.id),
+                        text = BotMessages.IMAGE_RECEIVED(user.languageCode, newImages.size),
+                      )
+                      .exec(api)
+                      .void
+                  } yield ()
+                }
+              } yield ()
+            case None =>
+              Logger[F].warn(s"Photo message without actual photo for user ${user.telegramId}")
+          }
+        case Some(_) =>
+          // Not in image awaiting state - ignore photo
+          Logger[F].debug(s"Photo received but not in BrokerAwaitingImages state for user ${user.telegramId}")
+        case None =>
+          Logger[F].warn(s"No session found for user ${user.telegramId} when handling photo")
+      }
+
+    // Update only the images in broker context
+    private def updateBrokerContextImages(telegramId: Long, images: List[String]): F[Unit] =
+      sessionsRepo
+        .updateState(telegramId) { session =>
+          for {
+            now <- Calendar[ConnectionIO].currentZonedDateTime
+            botContext <- session
+              .context
+              .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+            updatedContext = botContext.copy(
+              broker = botContext.broker.map { brokerFlow =>
+                brokerFlow.copy(
+                  draft = brokerFlow.draft.copy(
+                    forwardedMessage = brokerFlow.draft.forwardedMessage.copy(images = images)
+                  )
+                )
+              }
+            )
+          } yield session.copy(
+            context = Some(updatedContext.asJson),
+            updatedAt = now,
+          )
+        }
+        .transact(xa)
+
+    // Handle text input during images state (e.g., if user types something)
+    private def handleImagesTextInput(
+        msg: Message,
+        user: dto.TelegramUser,
+        text: String,
+      ): F[Unit] = {
+      val normalized = text.toLowerCase.trim
+      if (normalized == "done" || normalized == "tayyor" || normalized == "готово") {
+        handleImagesDone(msg, user)
+      }
+      else if (normalized == "skip" || normalized == "o'tkazib yuborish" || normalized == "пропустить") {
+        handleImagesSkip(msg, user)
+      }
+      else {
+        // User typed something else - remind them to send photos or use buttons
+        Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.PROMPT_IMAGES(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.imagesKeyboard(user.languageCode)),
+          )
+          .exec(api)
+          .void
+      }
+    }
+
+    // Handle "Done" button for images - proceed to next step with collected images
+    private def handleImagesDone(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        _ <- Logger[F].info(s"Images done for user ${user.telegramId}")
+        // Move to next step (Images → District)
+        _ <- updateStatePreservingContext(
+          user.telegramId,
+          BotState.BrokerAwaitingDistrict,
+          user.languageCode,
+        )
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.PROMPT_DISTRICT_BUTTON(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.districtKeyboard(user.languageCode)),
+          )
+          .exec(api)
+          .void
+      } yield ()
+
+    // Handle "Skip" button for images - proceed without images
+    private def handleImagesSkip(msg: Message, user: dto.TelegramUser): F[Unit] =
+      for {
+        _ <- Logger[F].info(s"Images skipped for user ${user.telegramId}")
+        // Move to next step (Images → District) without saving any images
+        _ <- updateStatePreservingContext(
+          user.telegramId,
+          BotState.BrokerAwaitingDistrict,
+          user.languageCode,
+        )
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.PROMPT_DISTRICT_BUTTON(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.districtKeyboard(user.languageCode)),
+          )
+          .exec(api)
+          .void
+      } yield ()
 
     private def handleDistrictInput(
         msg: Message,
@@ -2063,13 +2312,8 @@ object TelegramBotAlgebra {
 
       channelId match {
         case Some(id) =>
-          updateAdminContextAndNextStep(
-            user.telegramId,
-            msg.chat.id,
-            _.copy(selectedChannelId = Some(id)),
-            BotState.BrokerAwaitingListingType,
-            user.languageCode,
-          )
+          // Channel ID entered - now post to channel and save to DB
+          postToChannelAndSave(msg, user, id)
         case None =>
           val errorText = BotMessages.ERROR_INVALID_CHANNEL_ID(user.languageCode)
           Methods
@@ -2078,6 +2322,238 @@ object TelegramBotAlgebra {
             .void
       }
     }
+
+    // Post to Telegram channel and save to DB only if posting succeeds
+    private def postToChannelAndSave(
+        msg: Message,
+        user: dto.TelegramUser,
+        channelId: Long,
+      ): F[Unit] =
+      for {
+        session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
+        botContextOpt <- session
+          .flatMap(_.context)
+          .traverse(_.decodeAsF[F, BotContext])
+
+        _ <- botContextOpt.flatMap(_.broker.map(_.draft)) match {
+          case Some(context) =>
+            user.userId match {
+              case Some(userId) =>
+                // Update context with channel ID
+                val updatedContext = context.copy(selectedChannelId = Some(channelId))
+                for {
+                  // Show "posting..." message
+                  _ <- Methods
+                    .sendMessage(
+                      chatId = ChatIntId(msg.chat.id),
+                      text = BotMessages.POSTING_TO_CHANNEL(user.languageCode),
+                    )
+                    .exec(api)
+                    .void
+                  // Post to channel first
+                  postResult <- postListingToChannel(channelId, updatedContext, user.languageCode)
+                  _ <- postResult match {
+                    case Right(_) =>
+                      // Channel post succeeded - now save to DB
+                      for {
+                        _ <- Logger[F].info(s"Successfully posted to channel $channelId for user ${user.telegramId}")
+                        _ <- createListingInDatabase(userId, updatedContext, msg.chat.id, user.languageCode, user.telegramId)
+                      } yield ()
+                    case Left(error) =>
+                      // Channel post failed - DO NOT save to DB
+                      Logger[F].error(s"Failed to post to channel $channelId: $error") *>
+                        Methods
+                          .sendMessage(
+                            chatId = ChatIntId(msg.chat.id),
+                            text = BotMessages.CHANNEL_POST_FAILED(user.languageCode),
+                            replyMarkup = Some(TelegramKeyboards.brokerHomeKeyboard(user.languageCode)),
+                          )
+                          .exec(api)
+                          .void
+                  }
+                } yield ()
+              case None =>
+                val errorText = BotMessages.NEED_TO_REGISTER_FIRST(user.languageCode)
+                Methods
+                  .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
+                  .exec(api)
+                  .void
+            }
+          case None =>
+            Logger[F].warn(s"No admin posting context found for user ${user.telegramId}") *>
+              Methods
+                .sendMessage(
+                  chatId = ChatIntId(msg.chat.id),
+                  text = BotMessages.ERROR_NO_CONTEXT_FOUND(user.languageCode),
+                )
+                .exec(api)
+                .void
+        }
+      } yield ()
+
+    // Post listing to Telegram channel - returns Either for success/failure
+    private def postListingToChannel(
+        channelId: Long,
+        context: AdminPostingContext,
+        lang: Language,
+      ): F[Either[String, Unit]] = {
+      val messageText = formatListingForChannel(context, lang)
+
+      // If there are images, send as media group; otherwise send text only
+      context.forwardedMessage.images match {
+        case Nil =>
+          // No images - send text message
+          Methods
+            .sendMessage(
+              chatId = ChatIntId(channelId),
+              text = messageText,
+              parseMode = Some(Html),
+            )
+            .exec(api)
+            .attempt
+            .map {
+              case Right(_) => Right(())
+              case Left(e) => Left(e.getMessage)
+            }
+
+        case images =>
+          // Has images - send as photo(s) with caption on the first one
+          val firstPhoto = telegramium.bots.InputMediaPhoto(
+            media = InputLinkFile(images.head),
+            caption = Some(messageText),
+            parseMode = Some(Html),
+          )
+          val restPhotos = images.tail.map(img =>
+            telegramium.bots.InputMediaPhoto(media = InputLinkFile(img))
+          )
+          val mediaGroup = firstPhoto :: restPhotos
+
+          Methods
+            .sendMediaGroup(
+              chatId = ChatIntId(channelId),
+              media = mediaGroup,
+            )
+            .exec(api)
+            .attempt
+            .map {
+              case Right(_) => Right(())
+              case Left(e) => Left(e.getMessage)
+            }
+      }
+    }
+
+    // Format listing for channel posting
+    private def formatListingForChannel(context: AdminPostingContext, lang: Language): String = {
+      val listingTypeStr = context.listingType.map {
+        case ListingType.ForRent =>
+          lang match {
+            case Language.Uz => "🏢 Ijaraga"
+            case Language.Ru => "🏢 В аренду"
+            case _ => "🏢 For Rent"
+          }
+        case ListingType.ForSale =>
+          lang match {
+            case Language.Uz => "🏡 Sotishga"
+            case Language.Ru => "🏡 На продажу"
+            case _ => "🏡 For Sale"
+          }
+      }.getOrElse("")
+
+      val priceStr = context.price.map(p => s"💰 $$$p").getOrElse("")
+      val cityStr = context.city.map(c => s"📍 $c").getOrElse("")
+      val roomsStr = context.rooms.map(r => s"🚪 $r xona").getOrElse("")
+      val phoneStr = context.phone.map(p => s"📞 $p").getOrElse("")
+      val districtStr = context.district.map(d => s"🏙 $d").getOrElse("")
+      val floorStr = (context.floor, context.totalFloors) match {
+        case (Some(f), Some(t)) => s"🏗 $f/$t qavat"
+        case (Some(f), None) => s"🏗 $f-qavat"
+        case _ => ""
+      }
+      val buildingStr = context.buildingType.map(b => s"🏠 $b").getOrElse("")
+      val conditionStr = context.condition.map(c => s"✨ $c").getOrElse("")
+
+      List(
+        listingTypeStr,
+        priceStr,
+        cityStr,
+        roomsStr,
+        districtStr,
+        floorStr,
+        buildingStr,
+        conditionStr,
+        phoneStr,
+      ).filter(_.nonEmpty).mkString("\n")
+    }
+
+    // Create listing in database (only called after successful channel post)
+    private def createListingInDatabase(
+        userId: uz.scala.domain.UserId,
+        context: AdminPostingContext,
+        chatId: Long,
+        lang: Language,
+        telegramId: Long,
+      ): F[Unit] =
+      for {
+        listingId <- ID.make[F, uz.scala.domain.ListingId]
+        now <- Calendar[F].currentZonedDateTime
+
+        // Build the dto.Listing directly
+        titleText = context.forwardedMessage.text.getOrElse("Listing from Telegram")
+        descriptionText = context.forwardedMessage.text.getOrElse("No description")
+        cityText = context.city.getOrElse("Tashkent")
+        priceValue = context.price.getOrElse(BigDecimal(0))
+
+        listingDto = dto.Listing(
+          id = listingId,
+          ownerId = userId,
+          title = NonEmptyString.unsafeFrom(titleText),
+          description = NonEmptyString.unsafeFrom(descriptionText),
+          price = squants.market.USD(priceValue),
+          city = NonEmptyString.unsafeFrom(cityText),
+          images = context.forwardedMessage.images,
+          status = ListingStatus.Pending,
+          rejectionReason = None,
+          listingType = context.listingType.getOrElse(ListingType.ForRent),
+          rooms = context.rooms,
+          district = context.district,
+          floor = context.floor,
+          totalFloors = context.totalFloors,
+          buildingType = context.buildingType,
+          condition = context.condition,
+          telegramChannelId = context.selectedChannelId,
+          telegramMessageId = None,
+          createdAt = now,
+          updatedAt = now,
+          approvedAt = None,
+          approvedBy = None,
+        )
+
+        _ <- listingsRepo.create(listingDto)(lang).transact(xa)
+        _ <- Logger[F].info(s"Listing created in DB: $listingId for user $userId")
+
+        // Reset session to idle and clear context
+        _ <- sessionsRepo
+          .updateState(telegramId) { session =>
+            Calendar[ConnectionIO].currentZonedDateTime.map { nowSession =>
+              session.copy(
+                state = BotState.Idle,
+                context = None,
+                updatedAt = nowSession,
+              )
+            }
+          }
+          .transact(xa)
+
+        // Show success message
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(chatId),
+            text = BotMessages.LISTING_POSTED_SUCCESSFULLY(lang),
+            replyMarkup = Some(TelegramKeyboards.brokerHomeKeyboard(lang)),
+          )
+          .exec(api)
+          .void
+      } yield ()
 
     private def updateAdminContextAndNextStep(
         telegramId: Long,
@@ -2144,6 +2620,8 @@ object TelegramBotAlgebra {
           BotMessages.PROMPT_ROOMS(lang) -> Some(TelegramKeyboards.roomsSelectionKeyboard(lang))
         case BotState.BrokerAwaitingPhone =>
           BotMessages.PROMPT_PHONE_BUTTON(lang) -> Some(TelegramKeyboards.phoneKeyboard(lang))
+        case BotState.BrokerAwaitingImages =>
+          BotMessages.PROMPT_IMAGES(lang) -> Some(TelegramKeyboards.imagesKeyboard(lang))
         case BotState.BrokerAwaitingDistrict =>
           BotMessages.PROMPT_DISTRICT_BUTTON(lang) -> Some(TelegramKeyboards.districtKeyboard(lang))
         case BotState.BrokerAwaitingFloor =>
@@ -2241,25 +2719,24 @@ object TelegramBotAlgebra {
           .traverse(_.decodeAsF[F, BotContext])
 
         _ <- botContextOpt.flatMap(_.broker.map(_.draft)) match {
-          case Some(context) =>
-            // Check if admin has linked user account
-            user.userId match {
-              case Some(userId) =>
-                // Check permissions with Telegram API
-                checkAndCreateListing(
-                  user.telegramId,
-                  userId,
-                  context,
-                  msg.chat.id,
-                  user.languageCode,
+          case Some(_) =>
+            // Preview confirmed - now ask for channel selection
+            // Update state to BrokerAwaitingChannelSelection
+            for {
+              _ <- updateStatePreservingContext(
+                user.telegramId,
+                BotState.BrokerAwaitingChannelSelection,
+                user.languageCode,
+              )
+              _ <- Methods
+                .sendMessage(
+                  chatId = ChatIntId(msg.chat.id),
+                  text = BotMessages.PROMPT_CHANNEL_SELECTION(user.languageCode),
+                  replyMarkup = Some(TelegramKeyboards.channelSelectionKeyboard(user.languageCode)),
                 )
-              case None =>
-                val errorText = BotMessages.NEED_TO_REGISTER_FIRST(user.languageCode)
-                Methods
-                  .sendMessage(chatId = ChatIntId(msg.chat.id), text = errorText)
-                  .exec(api)
-                  .void
-            }
+                .exec(api)
+                .void
+            } yield ()
           case None =>
             Logger[F].warn(s"No admin posting context found for user ${user.telegramId}") *>
               Methods
@@ -2349,7 +2826,7 @@ object TelegramBotAlgebra {
         telegramId = user.telegramId,
         chatId = msg.chat.id,
         updateFn = _.copy(phone = phone),
-        nextState = BotState.BrokerAwaitingDistrict,
+        nextState = BotState.BrokerAwaitingImages,  // Changed: Phone → Images (not District)
         lang = user.languageCode,
       )
 
@@ -2410,8 +2887,41 @@ object TelegramBotAlgebra {
         user: dto.TelegramUser,
         condition: Option[String],
       ): F[Unit] =
-      // All fields collected, show preview
-      showListingPreview(user.telegramId, msg.chat.id, user.languageCode)
+      // Save condition and show preview
+      for {
+        // Update context with condition
+        _ <- sessionsRepo
+          .updateState(user.telegramId) { session =>
+            for {
+              now <- Calendar[ConnectionIO].currentZonedDateTime
+              updated <- session.context
+                .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                  _.decodeAsF[ConnectionIO, BotContext]
+                )
+                .map { context =>
+                  val brokerFlow = context.broker.getOrElse(
+                    BrokerFlowContext(
+                      draft = AdminPostingContext(
+                        forwardedMessage = ForwardedMessage(None, List.empty, None)
+                      ),
+                      currentStep = BrokerStep.Start,
+                    )
+                  )
+                  val updatedDraft = brokerFlow.draft.copy(condition = condition)
+                  session.copy(
+                    state = BotState.BrokerAwaitingConfirmation,
+                    context = Some(
+                      context.copy(broker = Some(brokerFlow.copy(draft = updatedDraft))).asJson
+                    ),
+                    updatedAt = now,
+                  )
+                }
+            } yield updated
+          }
+          .transact(xa)
+        // All fields collected, show preview
+        _ <- showListingPreview(user.telegramId, msg.chat.id, user.languageCode)
+      } yield ()
 
     private def handleAdminPostCancel(msg: Message, user: dto.TelegramUser): F[Unit] = {
 

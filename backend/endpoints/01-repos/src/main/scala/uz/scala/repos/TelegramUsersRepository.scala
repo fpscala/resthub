@@ -12,6 +12,7 @@ trait TelegramUsersRepository[F[_]] {
   def create(telegramUser: dto.TelegramUser)(implicit lang: Language): F[Unit]
   def updateLastInteraction(telegramId: Long): F[Unit]
   def updateUserId(telegramId: Long, userId: UserId): F[Unit]
+  def updatePhoneNumber(telegramId: Long, phoneNumber: String): F[Unit]
 }
 
 object TelegramUsersRepository {
@@ -27,5 +28,8 @@ object TelegramUsersRepository {
 
     override def updateUserId(telegramId: Long, userId: UserId): ConnectionIO[Unit] =
       TelegramUsersSql.updateUserId(telegramId, userId).run.void
+
+    override def updatePhoneNumber(telegramId: Long, phoneNumber: String): ConnectionIO[Unit] =
+      TelegramUsersSql.updatePhoneNumber(telegramId, phoneNumber).run.void
   }
 }

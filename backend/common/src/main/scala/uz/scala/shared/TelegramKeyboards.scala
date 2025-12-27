@@ -537,4 +537,42 @@ object TelegramKeyboards {
 
     InlineKeyboardMarkup(buttons)
   }
+
+  // Images upload keyboard with Done and Skip buttons
+  def imagesKeyboard(language: Language): InlineKeyboardMarkup = {
+    val doneText = BotMessages.IMAGES_DONE_BUTTON(language)
+    val skipText = BotMessages.IMAGES_SKIP_BUTTON(language)
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(doneText, callbackData = Some("images_done")),
+        InlineKeyboardButton(skipText, callbackData = Some("images_skip")),
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Channel selection keyboard for broker posting
+  def channelSelectionKeyboard(language: Language): InlineKeyboardMarkup = {
+    val (forwardHint, cancelText) = language match {
+      case Uz =>
+        ("📩 Kanaldan xabar yuboring", "❌ Bekor qilish")
+      case Ru =>
+        ("📩 Перешлите сообщение из канала", "❌ Отмена")
+      case En =>
+        ("📩 Forward a message from channel", "❌ Cancel")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(forwardHint, callbackData = Some("channel_forward_hint"))
+      ),
+      List(
+        InlineKeyboardButton(cancelText, callbackData = Some("admin_post_cancel"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
 }

@@ -193,6 +193,24 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Kanal tanlanmagan.",
   )
 
+  val PROMPT_CHANNEL_SELECTION: Map[Language, String] = Map(
+    En -> "📢 Select the channel where you want to post this listing.\nEnter the channel ID (e.g., -1001234567890) or forward a message from the channel:",
+    Ru -> "📢 Выберите канал для размещения объявления.\nВведите ID канала (например, -1001234567890) или перешлите сообщение из канала:",
+    Uz -> "📢 E'lonni joylashtirmoqchi bo'lgan kanalni tanlang.\nKanal ID kiriting (masalan, -1001234567890) yoki kanaldan xabar forward qiling:",
+  )
+
+  val POSTING_TO_CHANNEL: Map[Language, String] = Map(
+    En -> "📤 Posting to channel...",
+    Ru -> "📤 Размещение в канале...",
+    Uz -> "📤 Kanalga joylanmoqda...",
+  )
+
+  val CHANNEL_POST_FAILED: Map[Language, String] = Map(
+    En -> "❌ Failed to post to channel. Please check that the bot is an admin in the channel and try again.",
+    Ru -> "❌ Не удалось разместить в канале. Убедитесь, что бот является администратором канала и попробуйте снова.",
+    Uz -> "❌ Kanalga joylashda xatolik. Bot kanalda admin ekanligini tekshiring va qayta urinib ko'ring.",
+  )
+
   val PERMISSION_DENIED: Map[Language, String] = Map(
     En -> "You don't have permission to post in this channel!",
     Ru -> "У вас нет прав для размещения объявлений в этом канале!",
@@ -397,6 +415,47 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     En -> "Please enter a valid phone number:",
     Ru -> "Пожалуйста, введите правильный номер телефона:",
     Uz -> "Iltimos, to'g'ri telefon raqamini kiriting:",
+  )
+
+  def PHONE_RECEIVED(language: Language, phone: String): String =
+    language match {
+      case En => s"✅ Phone received: $phone"
+      case Ru => s"✅ Телефон получен: $phone"
+      case Uz => s"✅ Telefon qabul qilindi: $phone"
+    }
+
+  // ============================================================
+  // IMAGE UPLOAD MESSAGES
+  // ============================================================
+  val PROMPT_IMAGES: Map[Language, String] = Map(
+    En -> "📷 Send photos of the property (1-10 images).\nClick 'Done' when finished or 'Skip' to continue without photos:",
+    Ru -> "📷 Отправьте фотографии объекта (1-10 изображений).\nНажмите 'Готово' когда закончите или 'Пропустить' чтобы продолжить без фото:",
+    Uz -> "📷 Mulk rasmlarini yuboring (1-10 ta rasm).\n'Tayyor' tugmasini bosing yoki 'Oʻtkazib yuborish' tugmasini bosing:",
+  )
+
+  def IMAGE_RECEIVED(language: Language, count: Int): String =
+    language match {
+      case En => s"📷 Photo received! ($count/10)"
+      case Ru => s"📷 Фото получено! ($count/10)"
+      case Uz => s"📷 Rasm qabul qilindi! ($count/10)"
+    }
+
+  val ERROR_TOO_MANY_IMAGES: Map[Language, String] = Map(
+    En -> "⚠️ Maximum 10 images allowed. Click 'Done' to continue.",
+    Ru -> "⚠️ Максимум 10 изображений. Нажмите 'Готово' чтобы продолжить.",
+    Uz -> "⚠️ Maksimum 10 ta rasm. 'Tayyor' tugmasini bosing.",
+  )
+
+  val IMAGES_DONE_BUTTON: Map[Language, String] = Map(
+    En -> "✅ Done",
+    Ru -> "✅ Готово",
+    Uz -> "✅ Tayyor",
+  )
+
+  val IMAGES_SKIP_BUTTON: Map[Language, String] = Map(
+    En -> "⏭ Skip",
+    Ru -> "⏭ Пропустить",
+    Uz -> "⏭ Oʻtkazib yuborish",
   )
 
   val ERROR_INVALID_DISTRICT: Map[Language, String] = Map(

@@ -22,4 +22,7 @@ private[repos] object TelegramUsersSql extends Sql[dto.TelegramUser] {
 
   def updateUserId(telegramId: Long, userId: uz.scala.domain.UserId): Update0 =
     sql"""UPDATE $table SET user_id = $userId WHERE telegram_id = $telegramId""".update
+
+  def updatePhoneNumber(telegramId: Long, phoneNumber: String): Update0 =
+    sql"""UPDATE $table SET phone_number = $phoneNumber WHERE telegram_id = $telegramId""".update
 }

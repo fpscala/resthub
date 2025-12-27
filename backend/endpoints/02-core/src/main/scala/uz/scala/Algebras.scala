@@ -70,6 +70,8 @@ object Algebras {
       repositories.telegramUsers,
       repositories.telegramSessions,
       repositories.listings,
+      repositories.brokerChannels,
+      repositories.listingChannels,
       listings,
       cities,
       authAlgebra,

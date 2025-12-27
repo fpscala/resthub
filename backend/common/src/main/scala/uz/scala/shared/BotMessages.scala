@@ -742,4 +742,54 @@ You're a NestHub broker! You can post listings to channels."""
 2. Enter listing details
 3. Select channel
 4. Confirm posting""")
+
+  // ============================================================
+  // AUTO MULTI-CHANNEL POSTING MESSAGES
+  // ============================================================
+
+  def NO_CHANNELS_AVAILABLE(lang: Language): String = lang match {
+    case Uz => """❌ Sizda post joylash mumkin bo'lgan kanal yoki guruh topilmadi.
+
+Botni kanalingizga admin sifatida qo'shing, keyin qayta urinib ko'ring."""
+    case Ru => """❌ Не найдено каналов или групп для публикации.
+
+Добавьте бота в ваш канал как администратора, затем попробуйте снова."""
+    case En => """❌ No channels or groups available for posting.
+
+Add the bot to your channel as an admin, then try again."""
+  }
+
+  def POSTING_TO_CHANNELS(lang: Language, count: Int): String = lang match {
+    case Uz => s"📤 $count ta kanal(lar)ga joylanmoqda..."
+    case Ru => s"📤 Размещение в $count канал(ах)..."
+    case En => s"📤 Posting to $count channel(s)..."
+  }
+
+  def MULTI_CHANNEL_POST_SUCCESS(lang: Language, successes: Int, failures: Int): String = {
+    val failureInfo = if (failures > 0) {
+      lang match {
+        case Uz => s"\n⚠️ $failures ta kanal(lar)ga joylashda xatolik."
+        case Ru => s"\n⚠️ $failures канал(ов) недоступны."
+        case En => s"\n⚠️ $failures channel(s) unavailable."
+      }
+    } else ""
+
+    lang match {
+      case Uz => s"✅ E'lon muvaffaqiyatli $successes ta kanalga joylandi!$failureInfo"
+      case Ru => s"✅ Объявление успешно размещено в $successes канале(ах)!$failureInfo"
+      case En => s"✅ Listing successfully posted to $successes channel(s)!$failureInfo"
+    }
+  }
+
+  def ALL_CHANNELS_FAILED(lang: Language): String = lang match {
+    case Uz => """❌ Barcha kanallarga joylashda xatolik yuz berdi.
+
+Iltimos, botning kanallarda admin ekanligini tekshiring va qayta urinib ko'ring."""
+    case Ru => """❌ Не удалось разместить ни в одном канале.
+
+Проверьте, что бот является администратором каналов, и попробуйте снова."""
+    case En => """❌ Failed to post to any channel.
+
+Please check that the bot is an admin in your channels and try again."""
+  }
 }

@@ -8,6 +8,7 @@ import doobie.implicits._
 import io.circe.syntax._
 import org.typelevel.log4cats.Logger
 import telegramium.bots.ChatIntId
+import telegramium.bots.ChatMemberUpdated
 import telegramium.bots.Contact
 import telegramium.bots.Html
 import telegramium.bots.InlineKeyboardButton
@@ -35,6 +36,9 @@ import uz.scala.domain.telegram.ForwardedMessage
 import uz.scala.domain.telegram.SearchContext
 import uz.scala.effects.Calendar
 import uz.scala.effects.GenUUID
+import uz.scala.domain.enums.ChatType
+import uz.scala.repos.BrokerChannelsRepository
+import uz.scala.repos.ListingChannelsRepository
 import uz.scala.repos.ListingsRepository
 import uz.scala.repos.TelegramSessionsRepository
 import uz.scala.repos.TelegramUsersRepository
@@ -59,6 +63,8 @@ object TelegramBotAlgebra {
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
       listingsRepo: ListingsRepository[doobie.ConnectionIO],
+      brokerChannelsRepo: BrokerChannelsRepository[doobie.ConnectionIO],
+      listingChannelsRepo: ListingChannelsRepository[doobie.ConnectionIO],
       listingsAlgebra: ListingsAlgebra[F],
       citiesAlgebra: CitiesAlgebra[F],
       authAlgebra: AuthAlgebra[F],
@@ -72,6 +78,8 @@ object TelegramBotAlgebra {
       usersRepo,
       sessionsRepo,
       listingsRepo,
+      brokerChannelsRepo,
+      listingChannelsRepo,
       listingsAlgebra,
       citiesAlgebra,
       authAlgebra,
@@ -84,6 +92,8 @@ object TelegramBotAlgebra {
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
       listingsRepo: ListingsRepository[doobie.ConnectionIO],
+      brokerChannelsRepo: BrokerChannelsRepository[doobie.ConnectionIO],
+      listingChannelsRepo: ListingChannelsRepository[doobie.ConnectionIO],
       listingsAlgebra: ListingsAlgebra[F],
       citiesAlgebra: CitiesAlgebra[F],
       authAlgebra: AuthAlgebra[F],
@@ -93,9 +103,10 @@ object TelegramBotAlgebra {
       xa: doobie.Transactor[F]
     ) extends TelegramBotAlgebra[F] {
     override def processUpdate(update: Update): F[Unit] =
-      (update.message, update.callbackQuery) match {
-        case (Some(msg), _) => handleMessage(msg)
-        case (_, Some(callback)) => handleCallbackQuery(callback)
+      (update.message, update.callbackQuery, update.myChatMember) match {
+        case (Some(msg), _, _) => handleMessage(msg)
+        case (_, Some(callback), _) => handleCallbackQuery(callback)
+        case (_, _, Some(chatMember)) => handleMyChatMemberUpdate(chatMember)
         case _ => Logger[F].debug("Received update without message or callback, ignoring")
       }
 
@@ -157,6 +168,77 @@ object TelegramBotAlgebra {
         case _: telegramium.bots.InaccessibleMessage =>
           Logger[F].warn("Received inaccessible message in callback")
       }
+
+    // ============================================================
+    // AUTO CHANNEL DISCOVERY via my_chat_member updates
+    // ============================================================
+    private def handleMyChatMemberUpdate(update: ChatMemberUpdated): F[Unit] = {
+      val chatId = update.chat.id
+      val chatTitle = update.chat.title.getOrElse(update.chat.firstName.getOrElse("Unknown"))
+      val chatUsername = update.chat.username
+      val chatType = update.chat.`type` match {
+        case "channel" => ChatType.Channel
+        case "supergroup" => ChatType.Supergroup
+        case "group" => ChatType.Group
+        case _ => ChatType.Group
+      }
+
+      // Determine if bot is admin with posting permissions using OpenEnum pattern match
+      val (botStatus, botIsAdmin, botCanPost) = update.newChatMember match {
+        case iozhik.OpenEnum.Known(member) =>
+          member match {
+            case _: telegramium.bots.ChatMemberOwner => ("creator", true, true)
+            case admin: telegramium.bots.ChatMemberAdministrator =>
+              ("administrator", true, admin.canPostMessages.getOrElse(true))
+            case _: telegramium.bots.ChatMemberMember => ("member", false, false)
+            case _: telegramium.bots.ChatMemberRestricted => ("restricted", false, false)
+            case _: telegramium.bots.ChatMemberLeft => ("left", false, false)
+            case _: telegramium.bots.ChatMemberBanned => ("kicked", false, false)
+          }
+        case iozhik.OpenEnum.Unknown(_) => ("unknown", false, false)
+      }
+
+      if (botIsAdmin && botCanPost) {
+        // Bot was added/promoted as admin - discover all users in this chat
+        // who might be brokers
+        for {
+          _ <- Logger[F].info(
+            s"Bot added/promoted as admin in chat $chatId ($chatTitle), discovering brokers..."
+          )
+          // For now, just store the channel for the user who added/promoted us
+          userId = update.from.id
+          now <- Calendar[F].currentZonedDateTime
+          channelId <- GenUUID[F].make
+          channel = dto.BrokerChannel(
+            id = channelId,
+            telegramUserId = userId,
+            telegramChatId = chatId,
+            chatTitle = chatTitle,
+            chatType = chatType,
+            chatUsername = chatUsername,
+            botIsAdmin = true,
+            userCanPost = true, // The user who added us is likely an admin
+            isActive = true,
+            discoveredAt = now,
+            lastVerifiedAt = now,
+            createdAt = now,
+            updatedAt = now,
+          )
+          _ <- brokerChannelsRepo.upsert(channel).transact(xa)
+          _ <- Logger[F].info(s"Auto-discovered channel $chatId for broker $userId")
+        } yield ()
+      }
+      else if (botStatus == "left" || botStatus == "kicked") {
+        // Bot was removed - deactivate all broker links to this chat
+        for {
+          _ <- Logger[F].info(s"Bot removed from chat $chatId, deactivating broker links...")
+          _ <- brokerChannelsRepo.deactivateAllForChat(chatId).transact(xa)
+        } yield ()
+      }
+      else {
+        Logger[F].debug(s"Bot status in chat $chatId: $botStatus (not admin)")
+      }
+    }
 
     private def handleCallbackData(
         msg: Message,
@@ -1557,14 +1639,22 @@ object TelegramBotAlgebra {
         user.telegramId,
         BotMode.Broker,
         for {
+          // Log start of new listing flow
+          _ <- Logger[F].info(
+            s"broker_new_listing_start: user=${user.telegramId} starting new listing flow"
+          )
+          // Clear any existing broker_flow and start fresh - KEEP mode = BROKER
           _ <- sessionsRepo
             .updateState(user.telegramId) { session =>
-              Calendar[ConnectionIO].currentZonedDateTime.map { now =>
-                session.copy(
-                  state = BotState.BrokerAwaitingListingType,
-                  updatedAt = now,
-                )
-              }
+              for {
+                now <- Calendar[ConnectionIO].currentZonedDateTime
+                // CRITICAL: Clear broker_flow when starting new listing, preserve mode
+                freshContext = BotContext(mode = BotMode.Broker, broker = None)
+              } yield session.copy(
+                state = BotState.BrokerAwaitingListingType,
+                context = Some(freshContext.asJson),
+                updatedAt = now,
+              )
             }
             .transact(xa)
           _ <- Methods
@@ -2391,12 +2481,12 @@ object TelegramBotAlgebra {
         }
       } yield ()
 
-    // Post listing to Telegram channel - returns Either for success/failure
+    // Post listing to Telegram channel - returns Either with message ID for success
     private def postListingToChannel(
         channelId: Long,
         context: AdminPostingContext,
         lang: Language,
-      ): F[Either[String, Unit]] = {
+      ): F[Either[String, Long]] = {
       val messageText = formatListingForChannel(context, lang)
 
       // If there are images, send as media group; otherwise send text only
@@ -2412,7 +2502,7 @@ object TelegramBotAlgebra {
             .exec(api)
             .attempt
             .map {
-              case Right(_) => Right(())
+              case Right(msg) => Right(msg.messageId.toLong)
               case Left(e) => Left(e.getMessage)
             }
 
@@ -2436,53 +2526,67 @@ object TelegramBotAlgebra {
             .exec(api)
             .attempt
             .map {
-              case Right(_) => Right(())
+              case Right(messages) => Right(messages.headOption.map(_.messageId.toLong).getOrElse(0L))
               case Left(e) => Left(e.getMessage)
             }
       }
     }
 
-    // Format listing for channel posting
+    // Format listing for channel posting - Human-readable advertisement format
     private def formatListingForChannel(context: AdminPostingContext, lang: Language): String = {
-      val listingTypeStr = context.listingType.map {
-        case ListingType.ForRent =>
-          lang match {
-            case Language.Uz => "🏢 Ijaraga"
-            case Language.Ru => "🏢 В аренду"
-            case _ => "🏢 For Rent"
-          }
-        case ListingType.ForSale =>
-          lang match {
-            case Language.Uz => "🏡 Sotishga"
-            case Language.Ru => "🏡 На продажу"
-            case _ => "🏡 For Sale"
-          }
-      }.getOrElse("")
+      val sb = new StringBuilder
 
-      val priceStr = context.price.map(p => s"💰 $$$p").getOrElse("")
-      val cityStr = context.city.map(c => s"📍 $c").getOrElse("")
-      val roomsStr = context.rooms.map(r => s"🚪 $r xona").getOrElse("")
-      val phoneStr = context.phone.map(p => s"📞 $p").getOrElse("")
-      val districtStr = context.district.map(d => s"🏙 $d").getOrElse("")
-      val floorStr = (context.floor, context.totalFloors) match {
-        case (Some(f), Some(t)) => s"🏗 $f/$t qavat"
-        case (Some(f), None) => s"🏗 $f-qavat"
-        case _ => ""
+      // Header with listing type
+      sb.append("🏠 E'LON\n")
+      context.listingType.foreach {
+        case ListingType.ForRent => sb.append("Ijaraga\n")
+        case ListingType.ForSale => sb.append("Sotiladi\n")
       }
-      val buildingStr = context.buildingType.map(b => s"🏠 $b").getOrElse("")
-      val conditionStr = context.condition.map(c => s"✨ $c").getOrElse("")
+      sb.append("\n")
 
-      List(
-        listingTypeStr,
-        priceStr,
-        cityStr,
-        roomsStr,
-        districtStr,
-        floorStr,
-        buildingStr,
-        conditionStr,
-        phoneStr,
-      ).filter(_.nonEmpty).mkString("\n")
+      // Location section - only if city or district exists
+      val hasLocation = context.city.isDefined || context.district.isDefined
+      if (hasLocation) {
+        sb.append("📍 Joylashuv:\n")
+        (context.city, context.district) match {
+          case (Some(city), Some(district)) => sb.append(s"$city, $district\n")
+          case (Some(city), None) => sb.append(s"$city\n")
+          case (None, Some(district)) => sb.append(s"$district\n")
+          case _ => ()
+        }
+        sb.append("\n")
+      }
+
+      // Price section - only if price exists
+      context.price.foreach { price =>
+        sb.append("💰 Narx:\n")
+        sb.append(s"$$$price\n")
+        sb.append("\n")
+      }
+
+      // Property details section - only if any detail exists
+      val hasDetails = context.rooms.isDefined || context.floor.isDefined ||
+        context.buildingType.isDefined || context.condition.isDefined
+      if (hasDetails) {
+        sb.append("🏠 Uy haqida:\n")
+        context.rooms.foreach(r => sb.append(s"• Xonalar: $r xona\n"))
+        (context.floor, context.totalFloors) match {
+          case (Some(f), Some(t)) => sb.append(s"• Qavat: $f/$t qavat\n")
+          case (Some(f), None) => sb.append(s"• Qavat: $f-qavat\n")
+          case _ => ()
+        }
+        context.buildingType.foreach(b => sb.append(s"• Turi: $b\n"))
+        context.condition.foreach(c => sb.append(s"• Holati: $c\n"))
+        sb.append("\n")
+      }
+
+      // Contact section - only if phone exists
+      context.phone.foreach { phone =>
+        sb.append("📞 Aloqa:\n")
+        sb.append(s"$phone\n")
+      }
+
+      sb.toString().trim
     }
 
     // Create listing in database (only called after successful channel post)
@@ -2531,18 +2635,23 @@ object TelegramBotAlgebra {
         _ <- listingsRepo.create(listingDto)(lang).transact(xa)
         _ <- Logger[F].info(s"Listing created in DB: $listingId for user $userId")
 
-        // Reset session to idle and clear context
+        // Reset session to idle - KEEP mode but clear broker_flow
         _ <- sessionsRepo
           .updateState(telegramId) { session =>
-            Calendar[ConnectionIO].currentZonedDateTime.map { nowSession =>
-              session.copy(
-                state = BotState.Idle,
-                context = None,
-                updatedAt = nowSession,
-              )
-            }
+            for {
+              nowSession <- Calendar[ConnectionIO].currentZonedDateTime
+              // Preserve mode (BROKER), clear only broker_flow
+              resetContext = BotContext(mode = BotMode.Broker, broker = None)
+            } yield session.copy(
+              state = BotState.Idle,
+              context = Some(resetContext.asJson),
+              updatedAt = nowSession,
+            )
           }
           .transact(xa)
+        _ <- Logger[F].info(
+          s"broker_flow_reset_after_listing_create: user=$telegramId, mode=BROKER preserved"
+        )
 
         // Show success message
         _ <- Methods
@@ -2711,6 +2820,7 @@ object TelegramBotAlgebra {
           .void
       } yield ()
 
+    // AUTO MULTI-CHANNEL POSTING - One button posts to ALL discovered channels
     private def handleAdminPostConfirm(msg: Message, user: dto.TelegramUser): F[Unit] =
       for {
         session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
@@ -2719,23 +2829,25 @@ object TelegramBotAlgebra {
           .traverse(_.decodeAsF[F, BotContext])
 
         _ <- botContextOpt.flatMap(_.broker.map(_.draft)) match {
-          case Some(_) =>
-            // Preview confirmed - now ask for channel selection
-            // Update state to BrokerAwaitingChannelSelection
+          case Some(context) =>
+            // Get all postable channels for this broker
             for {
-              _ <- updateStatePreservingContext(
-                user.telegramId,
-                BotState.BrokerAwaitingChannelSelection,
-                user.languageCode,
-              )
-              _ <- Methods
-                .sendMessage(
-                  chatId = ChatIntId(msg.chat.id),
-                  text = BotMessages.PROMPT_CHANNEL_SELECTION(user.languageCode),
-                  replyMarkup = Some(TelegramKeyboards.channelSelectionKeyboard(user.languageCode)),
-                )
-                .exec(api)
-                .void
+              channels <- brokerChannelsRepo.findPostableByTelegramUserId(user.telegramId).transact(xa)
+              _ <- channels match {
+                case Nil =>
+                  // No channels available
+                  Methods
+                    .sendMessage(
+                      chatId = ChatIntId(msg.chat.id),
+                      text = BotMessages.NO_CHANNELS_AVAILABLE(user.languageCode),
+                      replyMarkup = Some(TelegramKeyboards.brokerHomeKeyboard(user.languageCode)),
+                    )
+                    .exec(api)
+                    .void
+                case availableChannels =>
+                  // Post to ALL channels automatically
+                  postToAllChannels(msg, user, context, availableChannels)
+              }
             } yield ()
           case None =>
             Logger[F].warn(s"No admin posting context found for user ${user.telegramId}") *>
@@ -2748,6 +2860,206 @@ object TelegramBotAlgebra {
                 .void
         }
       } yield ()
+
+    // Post listing to ALL discovered channels automatically
+    private def postToAllChannels(
+        msg: Message,
+        user: dto.TelegramUser,
+        context: AdminPostingContext,
+        channels: List[dto.BrokerChannel],
+      ): F[Unit] =
+      for {
+        // Show "posting..." message
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.POSTING_TO_CHANNELS(user.languageCode, channels.size),
+          )
+          .exec(api)
+          .void
+
+        // Validate permissions and post to each channel
+        results <- channels.traverse { channel =>
+          postToSingleChannel(channel, context, user.languageCode)
+        }
+
+        // Count successes and failures
+        successes = results.count(_._2.isRight)
+        failures = results.count(_._2.isLeft)
+
+        // Only save to DB if at least one channel succeeded
+        _ <- if (successes > 0) {
+          user.userId match {
+            case Some(userId) =>
+              for {
+                // Create listing in database
+                listingId <- ID.make[F, uz.scala.domain.ListingId]
+                now <- Calendar[F].currentZonedDateTime
+                titleText = context.forwardedMessage.text.getOrElse("Listing from Telegram")
+                descriptionText = context.forwardedMessage.text.getOrElse("No description")
+                cityText = context.city.getOrElse("Tashkent")
+                priceValue = context.price.getOrElse(BigDecimal(0))
+
+                listingDto = dto.Listing(
+                  id = listingId,
+                  ownerId = userId,
+                  title = NonEmptyString.unsafeFrom(titleText),
+                  description = NonEmptyString.unsafeFrom(descriptionText),
+                  price = squants.market.USD(priceValue),
+                  city = NonEmptyString.unsafeFrom(cityText),
+                  images = context.forwardedMessage.images,
+                  status = ListingStatus.Pending,
+                  rejectionReason = None,
+                  listingType = context.listingType.getOrElse(ListingType.ForRent),
+                  rooms = context.rooms,
+                  district = context.district,
+                  floor = context.floor,
+                  totalFloors = context.totalFloors,
+                  buildingType = context.buildingType,
+                  condition = context.condition,
+                  telegramChannelId = None, // We use listing_channels table now
+                  telegramMessageId = None,
+                  createdAt = now,
+                  updatedAt = now,
+                  approvedAt = None,
+                  approvedBy = None,
+                )
+
+                _ <- listingsRepo.create(listingDto)(user.languageCode).transact(xa)
+
+                // Save channel links for successful posts
+                _ <- results.collect {
+                  case (channel, Right(messageId)) =>
+                    val listingChannel = dto.ListingChannel(
+                      id = java.util.UUID.randomUUID(),
+                      listingId = listingId.value,
+                      telegramChatId = channel.telegramChatId,
+                      telegramMessageId = messageId,
+                      postedAt = now,
+                    )
+                    listingChannelsRepo.upsert(listingChannel).transact(xa)
+                }.sequence_
+
+                _ <- Logger[F].info(
+                  s"Listing $listingId created and posted to $successes channels for user ${user.telegramId}"
+                )
+
+                // Reset session to idle - KEEP mode but clear broker_flow
+                _ <- sessionsRepo
+                  .updateState(user.telegramId) { session =>
+                    for {
+                      nowSession <- Calendar[ConnectionIO].currentZonedDateTime
+                      // Preserve mode (BROKER), clear only broker_flow
+                      resetContext = BotContext(mode = BotMode.Broker, broker = None)
+                    } yield session.copy(
+                      state = BotState.Idle,
+                      context = Some(resetContext.asJson),
+                      updatedAt = nowSession,
+                    )
+                  }
+                  .transact(xa)
+                _ <- Logger[F].info(
+                  s"broker_flow_reset_after_success: user=${user.telegramId}, mode=BROKER preserved, broker_flow=cleared"
+                )
+
+                // Show success message
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.MULTI_CHANNEL_POST_SUCCESS(user.languageCode, successes, failures),
+                    replyMarkup = Some(TelegramKeyboards.brokerHomeKeyboard(user.languageCode)),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
+            case None =>
+              Methods
+                .sendMessage(
+                  chatId = ChatIntId(msg.chat.id),
+                  text = BotMessages.NEED_TO_REGISTER_FIRST(user.languageCode),
+                )
+                .exec(api)
+                .void
+          }
+        }
+        else {
+          // All channels failed - reset state to allow retry
+          for {
+            _ <- Logger[F].warn(
+              s"All channels failed for user ${user.telegramId}, resetting to Idle"
+            )
+            // Reset to Idle but KEEP mode = BROKER, clear broker_flow
+            _ <- sessionsRepo
+              .updateState(user.telegramId) { session =>
+                for {
+                  nowSession <- Calendar[ConnectionIO].currentZonedDateTime
+                  resetContext = BotContext(mode = BotMode.Broker, broker = None)
+                } yield session.copy(
+                  state = BotState.Idle,
+                  context = Some(resetContext.asJson),
+                  updatedAt = nowSession,
+                )
+              }
+              .transact(xa)
+            _ <- Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = BotMessages.ALL_CHANNELS_FAILED(user.languageCode),
+                replyMarkup = Some(TelegramKeyboards.brokerHomeKeyboard(user.languageCode)),
+              )
+              .exec(api)
+              .void
+          } yield ()
+        }
+      } yield ()
+
+    // Post to a single channel with permission validation
+    private def postToSingleChannel(
+        channel: dto.BrokerChannel,
+        context: AdminPostingContext,
+        lang: Language,
+      ): F[(dto.BrokerChannel, Either[String, Option[Long]])] = {
+      // First validate permissions via getChatMember
+      Methods
+        .getChatMember(
+          chatId = ChatIntId(channel.telegramChatId),
+          userId = channel.telegramUserId,
+        )
+        .exec(api)
+        .attempt
+        .flatMap {
+          case Right(memberResult) =>
+            // Use OpenEnum pattern match to extract status
+            val canPost = memberResult match {
+              case iozhik.OpenEnum.Known(member) =>
+                member match {
+                  case _: telegramium.bots.ChatMemberOwner => true
+                  case admin: telegramium.bots.ChatMemberAdministrator =>
+                    admin.canPostMessages.getOrElse(true)
+                  case _ => false
+                }
+              case iozhik.OpenEnum.Unknown(_) => false
+            }
+            if (canPost) {
+              // User has permission - post the listing
+              postListingToChannel(channel.telegramChatId, context, lang)
+                .map { result =>
+                  (channel, result.map(_.some))
+                }
+            }
+            else {
+              // User lost permission - update DB and skip
+              brokerChannelsRepo
+                .updatePermissions(channel.telegramUserId, channel.telegramChatId, channel.botIsAdmin, false)
+                .transact(xa) *>
+                (channel, Left(s"User lost admin permission in ${channel.chatTitle}"): Either[String, Option[Long]])
+                  .pure[F]
+            }
+          case Left(error) =>
+            Logger[F].warn(s"Failed to check permission for channel ${channel.telegramChatId}: ${error.getMessage}") *>
+              (channel, Left(error.getMessage): Either[String, Option[Long]]).pure[F]
+        }
+    }
 
     private def handleAdminPost(msg: Message, user: dto.TelegramUser): F[Unit] =
       handleAdminPostingCommand(msg, user)

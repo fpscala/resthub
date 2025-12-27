@@ -13,6 +13,8 @@ case class Repositories[F[_]](
     contracts: ContractsRepository[F],
     telegramUsers: TelegramUsersRepository[F],
     telegramSessions: TelegramSessionsRepository[F],
+    brokerChannels: BrokerChannelsRepository[F],
+    listingChannels: ListingChannelsRepository[F],
     cities: CitiesRepository[F],
   )
 
@@ -26,6 +28,8 @@ object Repositories {
       contracts = ContractsRepository.make,
       telegramUsers = TelegramUsersRepository.make,
       telegramSessions = TelegramSessionsRepository.make,
+      brokerChannels = BrokerChannelsRepository.make,
+      listingChannels = ListingChannelsRepository.make,
       cities = CitiesRepository.make,
     )
 }

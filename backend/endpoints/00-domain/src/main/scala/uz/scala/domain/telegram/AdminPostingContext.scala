@@ -17,6 +17,7 @@ case class AdminPostingContext(
     totalFloors: Option[Int] = None,
     buildingType: Option[String] = None,
     condition: Option[String] = None,
+    description: Option[String] = None, // User-provided description (optional)
     selectedChannelId: Option[Long] = None,
 ) {
   // Helper method to create a copy with updated field (used in broker flow)
@@ -30,6 +31,7 @@ case class AdminPostingContext(
   def withTotalFloors(value: Int): AdminPostingContext = copy(totalFloors = Some(value))
   def withBuildingType(value: String): AdminPostingContext = copy(buildingType = Some(value))
   def withCondition(value: String): AdminPostingContext = copy(condition = Some(value))
+  def withDescription(value: String): AdminPostingContext = copy(description = Some(value))
   def withChannel(value: Long): AdminPostingContext = copy(selectedChannelId = Some(value))
 
   // Helper method to create empty context

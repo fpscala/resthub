@@ -673,6 +673,13 @@ object TelegramBotAlgebra {
             case "skip" => handleConditionPostingSelection(msg, user, None)
           }
 
+        // Description selection (optional step)
+        case descriptionData if descriptionData.startsWith("description_") =>
+          descriptionData.stripPrefix("description_") match {
+            case "write" => handleDescriptionWriteRequest(msg, user)
+            case "skip" => handleDescriptionSkip(msg, user)
+          }
+
         // Admin posting actions
         case "admin_post_confirm" => handleAdminPostConfirm(msg, user)
         case "admin_post_cancel" => handleAdminPostCancel(msg, user)
@@ -1162,6 +1169,7 @@ object TelegramBotAlgebra {
                 case BotState.BrokerAwaitingTotalFloors => handleTotalFloorsInput(msg, user, text)
                 case BotState.BrokerAwaitingBuildingType => handleBuildingTypeInput(msg, user, text)
                 case BotState.BrokerAwaitingCondition => handleConditionInput(msg, user, text)
+                case BotState.BrokerAwaitingDescription => handleDescriptionInput(msg, user, text)
                 case BotState.BrokerAwaitingChannelSelection =>
                   handleChannelSelectionInput(msg, user, text)
                 case BotState.BrokerAwaitingConfirmation =>
@@ -2505,25 +2513,20 @@ object TelegramBotAlgebra {
       val normalized = text.toLowerCase.trim
 
       if (normalized == "skip" || normalized == "tashlab" || normalized == "пропустить")
-        // All fields collected, show preview
-        showListingPreview(user.telegramId, msg.chat.id, user.languageCode)
+        // Skip condition, go to description step
+        transitionToDescriptionStep(msg.chat.id, user, None)
       else {
         val condition = normalized match {
           case s if s.contains("yaxshi") || s.contains("хорош") => Some("Yaxshi")
-          case s if s.contains("z'or") || s.contains("отлич") => Some("Zo‘r")
+          case s if s.contains("z'or") || s.contains("отлич") => Some("Zo'r")
           case s if s.contains("ta'mir") || s.contains("ремонт") => Some("Ta'mirlangan")
           case _ => None
         }
 
         condition match {
           case Some(c) =>
-            updateAdminContextAndNextStep(
-              user.telegramId,
-              msg.chat.id,
-              _.copy(condition = Some(c)),
-              BotState.BrokerAwaitingConfirmation,
-              user.languageCode,
-            )
+            // Save condition and go to description step
+            transitionToDescriptionStep(msg.chat.id, user, Some(c))
           case None =>
             val errorText = BotMessages.ERROR_INVALID_CONDITION(user.languageCode)
             Methods
@@ -2531,6 +2534,118 @@ object TelegramBotAlgebra {
               .exec(api)
               .void
         }
+      }
+    }
+
+    // DESCRIPTION STEP: Transition from condition to description
+    private def transitionToDescriptionStep(
+        chatId: Long,
+        user: dto.TelegramUser,
+        condition: Option[String],
+      ): F[Unit] =
+      for {
+        now <- Calendar[F].currentZonedDateTime
+        _ <- sessionsRepo
+          .updateState(user.telegramId) { session =>
+            session
+              .context
+              .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+              .map { ctx =>
+                val brokerFlow = ctx.broker.getOrElse(
+                  BrokerFlowContext(
+                    draft = AdminPostingContext(
+                      forwardedMessage = ForwardedMessage(None, List.empty, None)
+                    )
+                  )
+                )
+                val updatedDraft = condition match {
+                  case Some(c) => brokerFlow.draft.copy(condition = Some(c))
+                  case None => brokerFlow.draft
+                }
+                ctx.copy(
+                  broker = Some(brokerFlow.copy(draft = updatedDraft, currentStep = BrokerStep.Description))
+                )
+              }
+              .map { updatedContext =>
+                session.copy(
+                  state = BotState.BrokerAwaitingDescription,
+                  context = Some(updatedContext.asJson),
+                  updatedAt = now,
+                )
+              }
+          }
+          .transact(xa)
+        // Send description prompt with keyboard
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(chatId),
+            text = BotMessages.PROMPT_DESCRIPTION(user.languageCode),
+            replyMarkup = Some(TelegramKeyboards.descriptionKeyboard(user.languageCode)),
+          )
+          .exec(api)
+      } yield ()
+
+    // Handle description text input
+    private def handleDescriptionInput(
+        msg: Message,
+        user: dto.TelegramUser,
+        text: String,
+      ): F[Unit] = {
+      val trimmed = text.trim
+
+      if (trimmed.length > 1000) {
+        // Description too long
+        Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.DESCRIPTION_TOO_LONG(user.languageCode),
+          )
+          .exec(api)
+          .void
+      } else {
+        // Save description and show preview
+        for {
+          now <- Calendar[F].currentZonedDateTime
+          _ <- sessionsRepo
+            .updateState(user.telegramId) { session =>
+              session
+                .context
+                .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                  _.decodeAsF[ConnectionIO, BotContext]
+                )
+                .map { ctx =>
+                  val brokerFlow = ctx.broker.getOrElse(
+                    BrokerFlowContext(
+                      draft = AdminPostingContext(
+                        forwardedMessage = ForwardedMessage(None, List.empty, None)
+                      )
+                    )
+                  )
+                  val updatedDraft = brokerFlow.draft.copy(description = Some(trimmed))
+                  ctx.copy(
+                    broker = Some(brokerFlow.copy(draft = updatedDraft, currentStep = BrokerStep.Confirmation))
+                  )
+                }
+                .map { updatedContext =>
+                  session.copy(
+                    state = BotState.BrokerAwaitingConfirmation,
+                    context = Some(updatedContext.asJson),
+                    updatedAt = now,
+                  )
+                }
+            }
+            .transact(xa)
+          _ <- Methods
+            .sendMessage(
+              chatId = ChatIntId(msg.chat.id),
+              text = BotMessages.DESCRIPTION_SAVED(user.languageCode),
+            )
+            .exec(api)
+          // Show preview
+          _ <- showListingPreview(user.telegramId, msg.chat.id, user.languageCode)
+        } yield ()
       }
     }
 
@@ -3526,39 +3641,59 @@ object TelegramBotAlgebra {
         user: dto.TelegramUser,
         condition: Option[String],
       ): F[Unit] =
-      // Save condition and show preview
+      // Save condition and go to description step
+      transitionToDescriptionStep(msg.chat.id, user, condition)
+
+    // DESCRIPTION CALLBACK HANDLERS
+    private def handleDescriptionWriteRequest(
+        msg: Message,
+        user: dto.TelegramUser,
+      ): F[Unit] =
+      // User wants to write a description - prompt for text input
+      Methods
+        .sendMessage(
+          chatId = ChatIntId(msg.chat.id),
+          text = BotMessages.PROMPT_ENTER_DESCRIPTION(user.languageCode),
+        )
+        .exec(api)
+        .void
+
+    private def handleDescriptionSkip(
+        msg: Message,
+        user: dto.TelegramUser,
+      ): F[Unit] =
+      // User skipped description - go directly to preview
       for {
-        // Update context with condition
+        now <- Calendar[F].currentZonedDateTime
         _ <- sessionsRepo
           .updateState(user.telegramId) { session =>
-            for {
-              now <- Calendar[ConnectionIO].currentZonedDateTime
-              updated <- session.context
-                .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
-                  _.decodeAsF[ConnectionIO, BotContext]
-                )
-                .map { context =>
-                  val brokerFlow = context.broker.getOrElse(
-                    BrokerFlowContext(
-                      draft = AdminPostingContext(
-                        forwardedMessage = ForwardedMessage(None, List.empty, None)
-                      ),
-                      currentStep = BrokerStep.Start,
+            session
+              .context
+              .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                _.decodeAsF[ConnectionIO, BotContext]
+              )
+              .map { ctx =>
+                val brokerFlow = ctx.broker.getOrElse(
+                  BrokerFlowContext(
+                    draft = AdminPostingContext(
+                      forwardedMessage = ForwardedMessage(None, List.empty, None)
                     )
                   )
-                  val updatedDraft = brokerFlow.draft.copy(condition = condition)
-                  session.copy(
-                    state = BotState.BrokerAwaitingConfirmation,
-                    context = Some(
-                      context.copy(broker = Some(brokerFlow.copy(draft = updatedDraft))).asJson
-                    ),
-                    updatedAt = now,
-                  )
-                }
-            } yield updated
+                )
+                ctx.copy(
+                  broker = Some(brokerFlow.copy(currentStep = BrokerStep.Confirmation))
+                )
+              }
+              .map { updatedContext =>
+                session.copy(
+                  state = BotState.BrokerAwaitingConfirmation,
+                  context = Some(updatedContext.asJson),
+                  updatedAt = now,
+                )
+              }
           }
           .transact(xa)
-        // All fields collected, show preview
+        // Show preview
         _ <- showListingPreview(user.telegramId, msg.chat.id, user.languageCode)
       } yield ()
 
@@ -3655,12 +3790,16 @@ object TelegramBotAlgebra {
         chatId: Long,
         lang: Language,
       ): F[Unit] = {
-      // Build title from original message or use a default
-      val titleText = context
-        .forwardedMessage
-        .text
-        .map(text => if (text.length > 255) text.take(252) + "..." else text)
-        .getOrElse(BotMessages.DEFAULT_LISTING_TITLE(lang))
+      // DYNAMIC TITLE GENERATION - Never use generic titles like "Listing from Telegram"
+      // Generate SEO-friendly, meaningful title from listing data
+      val titleText = BotMessages.generateDynamicTitle(
+        listingType = context.listingType.map(_.entryName),
+        city = context.city,
+        district = context.district,
+        rooms = context.rooms,
+        buildingType = context.buildingType,
+        lang = lang,
+      )
 
       // Create the listing with all structured data
       context.listingType match {
@@ -3674,7 +3813,14 @@ object TelegramBotAlgebra {
             listingId <- ID.make[F, uz.scala.domain.ListingId]
             now <- Calendar[F].currentZonedDateTime
             city = context.city.getOrElse("")
-            description = context.forwardedMessage.text.getOrElse("")
+            // DESCRIPTION: Use user-provided description, fallback to empty string (not forwarded message)
+            // User can optionally add description during the broker flow
+            description = context.description.getOrElse("")
+
+            // IMAGES: Convert Telegram file IDs to public URLs
+            // Uses Telegram Bot API to get file paths, then constructs public URLs
+            imageUrls <- convertTelegramFileIdsToUrls(context.forwardedMessage.images)
+
             // Create listing DTO with proper refined types
             listingDto =
               uz.scala
@@ -3687,7 +3833,7 @@ object TelegramBotAlgebra {
                   description = description,
                   price = price,
                   city = city,
-                  images = context.forwardedMessage.images,
+                  images = imageUrls, // Now using public URLs instead of Telegram file IDs
                   status = uz.scala.domain.enums.ListingStatus.Pending,
                   rejectionReason = None,
                   listingType = listingType,
@@ -3765,29 +3911,57 @@ object TelegramBotAlgebra {
               -1L.pure[F] // placeholder that will cause early return
         }
 
-        // Early return if no valid channel
-        _ <-
-          if (channelId == -1L)
+        result <-
+          if (channelId == -1L) {
             Logger[F].error("No channel ID available") *> Option.empty[String].pure[F]
-          else ().pure[F]
+          } else {
+            // Format the listing message
+            val messageText = formatListingForTelegram(context, lang)
 
-        // Format the listing message
-        messageText = formatListingForTelegram(context, lang)
+            // Check if we have images to send
+            context.forwardedMessage.images match {
+              case Nil =>
+                // No images - send text message only
+                for {
+                  message <- Methods
+                    .sendMessage(
+                      chatId = ChatIntId(channelId),
+                      text = messageText,
+                      parseMode = Some(Html),
+                    )
+                    .exec(api)
+                  _ <- Logger[F].info(
+                    s"Posted text-only listing to channel, message_id: ${message.messageId}"
+                  )
+                } yield Some(message.messageId.toString)
 
-        // Send to Telegram channel
-        message <- Methods
-          .sendMessage(
-            chatId = ChatIntId(channelId),
-            text = messageText,
-            parseMode = Some(Html),
-          )
-          .exec(api)
+              case images =>
+                // Has images - send as media group with caption on first photo
+                val firstPhoto = telegramium.bots.InputMediaPhoto(
+                  media = InputLinkFile(images.head),
+                  caption = Some(messageText),
+                  parseMode = Some(Html),
+                )
+                val restPhotos = images.tail.map(img =>
+                  telegramium.bots.InputMediaPhoto(media = InputLinkFile(img))
+                )
+                val mediaGroup = firstPhoto :: restPhotos
 
-        _ <- Logger[F].info(
-          s"Successfully posted to Telegram channel, message_id: ${message.messageId}"
-        )
-
-      } yield Some(message.messageId.toString)
+                for {
+                  messages <- Methods
+                    .sendMediaGroup(
+                      chatId = ChatIntId(channelId),
+                      media = mediaGroup,
+                    )
+                    .exec(api)
+                  messageId = messages.headOption.map(_.messageId.toString).getOrElse("0")
+                  _ <- Logger[F].info(
+                    s"Posted listing with ${images.size} images to channel, message_id: $messageId"
+                  )
+                } yield Some(messageId)
+            }
+          }
+      } yield result
 
     // TELEGRAM CHANNEL POST: Uses unified MODERN PREMIUM FORMAT
     private def formatListingForTelegram(
@@ -3837,6 +4011,35 @@ $channelPostFormat
 
 $confirmText"""
     }
+
+    // TELEGRAM FILE ID TO PUBLIC URL CONVERSION
+    // Downloads file info from Telegram and constructs public download URL
+    private def convertTelegramFileIdsToUrls(fileIds: List[String]): F[List[String]] =
+      fileIds.traverse { fileId =>
+        // Use Telegram's getFile API to get file path
+        Methods
+          .getFile(fileId)
+          .exec(api)
+          .flatMap { file =>
+            file.filePath match {
+              case Some(path) =>
+                // Construct public Telegram file URL
+                // Format: https://api.telegram.org/file/bot<TOKEN>/<file_path>
+                val url = s"https://api.telegram.org/file/bot$botToken/$path"
+                url.pure[F]
+              case None =>
+                // Fallback to file ID if path not available
+                // This should rarely happen
+                Logger[F].warn(s"No file path for Telegram file ID: $fileId") *>
+                  fileId.pure[F]
+            }
+          }
+          .handleErrorWith { error =>
+            // If we can't get file info, log and keep the file ID
+            Logger[F].warn(s"Failed to get file info for $fileId: ${error.getMessage}") *>
+              fileId.pure[F]
+          }
+      }
 
     // Mode-based feature blocking helpers
     private def checkUserMode(

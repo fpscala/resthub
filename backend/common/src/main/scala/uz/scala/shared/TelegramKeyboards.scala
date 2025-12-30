@@ -616,6 +616,21 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
+  // Description input keyboard (optional step after condition)
+  def descriptionKeyboard(language: Language): InlineKeyboardMarkup = {
+    val writeText = BotMessages.BUTTON_WRITE_DESCRIPTION(language)
+    val skipText = BotMessages.BUTTON_SKIP_DESCRIPTION(language)
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(writeText, callbackData = Some("description_write")),
+        InlineKeyboardButton(skipText, callbackData = Some("description_skip")),
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
   // Images upload keyboard with Done and Skip buttons
   def imagesKeyboard(language: Language): InlineKeyboardMarkup = {
     val doneText = BotMessages.IMAGES_DONE_BUTTON(language)

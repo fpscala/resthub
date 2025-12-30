@@ -49,6 +49,7 @@ object BrokerStep {
   case object TotalFloors extends BrokerStep
   case object BuildingType extends BrokerStep
   case object Condition extends BrokerStep
+  case object Description extends BrokerStep // NEW: Optional description after Condition
   case object Confirmation extends BrokerStep
   case object ChannelSelection extends BrokerStep
   case object Complete extends BrokerStep
@@ -68,6 +69,7 @@ object BrokerStep {
       case "TotalFloors" => Right(TotalFloors)
       case "BuildingType" => Right(BuildingType)
       case "Condition" => Right(Condition)
+      case "Description" => Right(Description)
       case "Confirmation" => Right(Confirmation)
       case "ChannelSelection" => Right(ChannelSelection)
       case "Complete" => Right(Complete)

@@ -25,7 +25,7 @@ object BotState extends Enum[BotState] with CirceEnum[BotState] with DoobieEnum[
   // BROKER POSTING STATES (ONLY USED IN BROKER MODE)
   // Flow: ListingType → Price → City → Rooms → Phone → Images →
   //       District → Floor → TotalFloors → BuildingType → Condition →
-  //       Confirmation → ChannelSelection
+  //       Description → Confirmation → ChannelSelection
   // ============================================================
   case object BrokerAwaitingListingType extends BotState
   case object BrokerAwaitingPrice extends BotState
@@ -38,6 +38,7 @@ object BotState extends Enum[BotState] with CirceEnum[BotState] with DoobieEnum[
   case object BrokerAwaitingTotalFloors extends BotState
   case object BrokerAwaitingBuildingType extends BotState
   case object BrokerAwaitingCondition extends BotState
+  case object BrokerAwaitingDescription extends BotState // Optional description
   case object BrokerAwaitingConfirmation extends BotState
   case object BrokerAwaitingChannelSelection extends BotState
 

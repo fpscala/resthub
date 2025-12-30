@@ -414,6 +414,43 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Holatni tanlang:",
   )
 
+  // Description prompts (optional step after condition)
+  val PROMPT_DESCRIPTION: Map[Language, String] = Map(
+    En -> "📝 Would you like to add a description? This helps buyers understand your listing better.",
+    Ru -> "📝 Хотите добавить описание? Это поможет покупателям лучше понять ваше объявление.",
+    Uz -> "📝 Tavsif qo'shmoqchimisiz? Bu xaridorlarga e'loningizni yaxshiroq tushunishga yordam beradi.",
+  )
+
+  val BUTTON_WRITE_DESCRIPTION: Map[Language, String] = Map(
+    En -> "✍️ Write description",
+    Ru -> "✍️ Написать описание",
+    Uz -> "✍️ Tavsif yozish",
+  )
+
+  val BUTTON_SKIP_DESCRIPTION: Map[Language, String] = Map(
+    En -> "⏭ Skip",
+    Ru -> "⏭ Пропустить",
+    Uz -> "⏭ O'tkazib yuborish",
+  )
+
+  val PROMPT_ENTER_DESCRIPTION: Map[Language, String] = Map(
+    En -> "📝 Enter your description (max 1000 characters):\n\nTip: Include details about amenities, location highlights, or special features.",
+    Ru -> "📝 Введите описание (макс. 1000 символов):\n\nСовет: Укажите удобства, особенности расположения или уникальные характеристики.",
+    Uz -> "📝 Tavsifni kiriting (max 1000 belgi):\n\nMaslahat: Qulayliklar, joylashuv xususiyatlari yoki alohida imkoniyatlarni ko'rsating.",
+  )
+
+  val DESCRIPTION_SAVED: Map[Language, String] = Map(
+    En -> "✅ Description saved!",
+    Ru -> "✅ Описание сохранено!",
+    Uz -> "✅ Tavsif saqlandi!",
+  )
+
+  val DESCRIPTION_TOO_LONG: Map[Language, String] = Map(
+    En -> "❌ Description is too long. Maximum 1000 characters allowed. Please try again:",
+    Ru -> "❌ Описание слишком длинное. Максимум 1000 символов. Попробуйте снова:",
+    Uz -> "❌ Tavsif juda uzun. Maksimum 1000 belgi ruxsat etiladi. Qayta urinib ko'ring:",
+  )
+
   // Error messages for validation
   val ERROR_INVALID_LISTING_TYPE: Map[Language, String] = Map(
     En -> "Please enter a valid type: 'For Rent' or 'For Sale'",
@@ -979,6 +1016,129 @@ Please check that the bot is an admin in your channels and try again."""
       case "zo'r" | "отличное" | "excellent" => CONDITION_EXCELLENT(lang)
       case "ta'mir talab" | "требует ремонта" | "needs repair" => CONDITION_NEEDS_REPAIR(lang)
       case _ => condition // Keep original if unknown
+    }
+  }
+
+  // ============================================================
+  // DYNAMIC TITLE GENERATION FOR TELEGRAM LISTINGS
+  // Generates SEO-friendly, human-readable titles
+  // Examples: "2 xonali kvartira ijaraga, Sergeli"
+  // ============================================================
+
+  /**
+   * Generates a meaningful, SEO-friendly title for listings created via Telegram.
+   * Never returns generic titles like "Listing from Telegram".
+   *
+   * Format examples:
+   * - "2 xonali kvartira ijaraga, Sergeli" (Uz)
+   * - "3-комнатная квартира в аренду, Чиланзар" (Ru)
+   * - "2-room apartment for rent, Sergeli" (En)
+   */
+  def generateDynamicTitle(
+      listingType: Option[String],
+      city: Option[String],
+      district: Option[String],
+      rooms: Option[Int],
+      buildingType: Option[String],
+      lang: Language,
+    ): String = {
+    val parts = new scala.collection.mutable.ListBuffer[String]()
+
+    // Part 1: Rooms + Building Type
+    val roomsPart = rooms match {
+      case Some(r) =>
+        lang match {
+          case Uz => s"$r xonali"
+          case Ru => s"$r-комнатная"
+          case En => s"$r-room"
+        }
+      case None => ""
+    }
+
+    val buildingPart = buildingType match {
+      case Some(bt) =>
+        bt.toLowerCase match {
+          case "kvartira" | "квартира" | "apartment" =>
+            lang match {
+              case Uz => "kvartira"
+              case Ru => "квартира"
+              case En => "apartment"
+            }
+          case "hovli" | "дом" | "house" =>
+            lang match {
+              case Uz => "hovli"
+              case Ru => "дом"
+              case En => "house"
+            }
+          case "ofis" | "офис" | "office" =>
+            lang match {
+              case Uz => "ofis"
+              case Ru => "офис"
+              case En => "office"
+            }
+          case _ => bt
+        }
+      case None =>
+        // Default to "property" if no building type
+        lang match {
+          case Uz => "mulk"
+          case Ru => "недвижимость"
+          case En => "property"
+        }
+    }
+
+    // Combine rooms + building type
+    if (roomsPart.nonEmpty) {
+      parts += s"$roomsPart $buildingPart"
+    } else {
+      parts += buildingPart.capitalize
+    }
+
+    // Part 2: Listing Type
+    val typePart = listingType match {
+      case Some(lt) =>
+        lt.toUpperCase match {
+          case "FOR_RENT" | "FORRENT" =>
+            lang match {
+              case Uz => "ijaraga"
+              case Ru => "в аренду"
+              case En => "for rent"
+            }
+          case "FOR_SALE" | "FORSALE" =>
+            lang match {
+              case Uz => "sotiladi"
+              case Ru => "на продажу"
+              case En => "for sale"
+            }
+          case _ => ""
+        }
+      case None => ""
+    }
+
+    if (typePart.nonEmpty) {
+      parts += typePart
+    }
+
+    // Part 3: Location
+    val locationPart = (city, district) match {
+      case (Some(c), Some(d)) => Some(s"$c, $d")
+      case (Some(c), None) => Some(c)
+      case (None, Some(d)) => Some(d)
+      case _ => None
+    }
+
+    locationPart.foreach { loc =>
+      parts += loc
+    }
+
+    // Join parts with appropriate separators
+    val title = parts.mkString(", ")
+
+    // Capitalize first letter and ensure not empty
+    if (title.isEmpty) {
+      DEFAULT_LISTING_TITLE(lang)
+    } else {
+      title.head.toUpper + title.tail
     }
   }
 

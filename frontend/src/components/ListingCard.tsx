@@ -25,6 +25,8 @@ export interface ListingCardProps {
  */
 export function ListingCard({ listing, onClick, className }: ListingCardProps) {
   const imageUrl = listing.images[0] || 'https://via.placeholder.com/400x300?text=No+Image';
+  const isForSale = listing.listingType === 'FOR_SALE';
+  const priceLabel = isForSale ? '' : '/mo';
 
   const content = (
     <div
@@ -45,6 +47,12 @@ export function ListingCard({ listing, onClick, className }: ListingCardProps) {
           className="object-cover transition-transform group-hover:scale-105"
           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
         />
+        {/* Listing Type Badge */}
+        <span className={`absolute left-2 top-2 rounded-full px-2 py-1 text-xs font-semibold text-white ${
+          isForSale ? 'bg-green-600' : 'bg-blue-600'
+        }`}>
+          {isForSale ? 'Sale' : 'Rent'}
+        </span>
         {listing.status === 'PENDING' && (
           <span className="absolute right-2 top-2 rounded-full bg-yellow-500 px-2 py-1 text-xs font-semibold text-white">
             Pending
@@ -59,10 +67,24 @@ export function ListingCard({ listing, onClick, className }: ListingCardProps) {
         </h3>
         <p className="mt-1 line-clamp-2 text-sm text-gray-600">{listing.description}</p>
 
+        {/* Property quick info */}
+        <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
+          {listing.rooms && (
+            <span className="flex items-center gap-1">
+              <span>🛏</span> {listing.rooms} rooms
+            </span>
+          )}
+          {listing.district && (
+            <span className="flex items-center gap-1">
+              <span>📍</span> {listing.district}
+            </span>
+          )}
+        </div>
+
         <div className="mt-3 flex items-center justify-between">
           <span className="text-2xl font-bold text-primary-600">
             {formatPrice(listing.price)}
-            <span className="text-sm font-normal text-gray-500">/mo</span>
+            <span className="text-sm font-normal text-gray-500">{priceLabel}</span>
           </span>
           <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
             {listing.city}

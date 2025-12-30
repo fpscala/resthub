@@ -1160,6 +1160,7 @@ Please check that the bot is an admin in your channels and try again."""
       buildingType: Option[String],
       condition: Option[String],
       phone: Option[String],
+      description: Option[String] = None, // NEW: Optional description
       lang: Language,
     ): String = {
     val sb = new StringBuilder
@@ -1197,6 +1198,19 @@ Please check that the bot is an admin in your channels and try again."""
     // ━━━ PRICE: 💰 **{price}** ━━━
     price.foreach { p =>
       sb.append(s"💰 <b>$$${p.setScale(0, BigDecimal.RoundingMode.HALF_UP)}</b>\n\n")
+    }
+
+    // ━━━ DESCRIPTION: 📝 Tavsif (only if provided and non-empty) ━━━
+    description.filter(_.trim.nonEmpty).foreach { desc =>
+      sb.append("<b>📝 ")
+      sb.append(lang match {
+        case Uz => "Tavsif:"
+        case Ru => "Описание:"
+        case En => "Description:"
+      })
+      sb.append("</b>\n")
+      sb.append(desc.trim)
+      sb.append("\n\n")
     }
 
     // ━━━ SEPARATOR ━━━

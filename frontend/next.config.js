@@ -14,6 +14,11 @@ const nextConfig = {
         hostname: 'minio.scala.uz',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'api.telegram.org',
+        pathname: '/file/**',
+      },
     ],
     // Disable image optimization in standalone mode to avoid sharp dependency issues
     unoptimized: true,

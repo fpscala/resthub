@@ -47,6 +47,27 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     );
   }
 
+  // Format listing type for display
+  const listingTypeLabel = listing.listingType === 'FOR_SALE' ? 'For Sale' : 'For Rent';
+  const priceLabel = listing.listingType === 'FOR_SALE' ? '' : '/month';
+
+  // Format location with district if available
+  const locationDisplay = listing.district
+    ? `${listing.city}, ${listing.district}`
+    : listing.city;
+
+  // Format floor display
+  const getFloorDisplay = () => {
+    if (listing.floor && listing.totalFloors) {
+      return `${listing.floor} / ${listing.totalFloors}`;
+    }
+    if (listing.floor) {
+      return `${listing.floor}`;
+    }
+    return null;
+  };
+  const floorDisplay = getFloorDisplay();
+
   return (
     <div className="container-custom py-8">
       {/* Image Gallery */}
@@ -58,6 +79,14 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         {/* Main Content */}
         <div className="lg:col-span-2">
           <div className="mb-4">
+            {/* Listing Type Badge */}
+            <span className={`inline-block mb-2 rounded-full px-3 py-1 text-xs font-semibold ${
+              listing.listingType === 'FOR_SALE'
+                ? 'bg-green-100 text-green-800'
+                : 'bg-blue-100 text-blue-800'
+            }`}>
+              {listingTypeLabel}
+            </span>
             <h1 className="text-3xl font-bold text-gray-900">{listing.title}</h1>
             <div className="mt-2 flex items-center gap-4 text-sm text-gray-600">
               <span className="inline-flex items-center">
@@ -80,7 +109,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                     d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                   />
                 </svg>
-                {listing.city}
+                {locationDisplay}
               </span>
               <span>Posted {formatDate(listing.createdAt)}</span>
             </div>
@@ -98,17 +127,16 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             <div className="mb-6">
               <div className="text-3xl font-bold text-primary-600">
                 {formatPrice(listing.price)}
-                <span className="text-base font-normal text-gray-500">/month</span>
+                <span className="text-base font-normal text-gray-500">{priceLabel}</span>
               </div>
             </div>
 
-            {/* TODO: Add owner contact info once user relationships are implemented */}
+            {/* Contact Owner - uses actual owner phone */}
             <Button
               variant="primary"
               className="mb-3 w-full"
               onClick={() => {
-                // TODO: Replace with actual owner phone number
-                window.location.href = 'tel:+1234567890';
+                window.location.href = `tel:${listing.owner.phone}`;
               }}
             >
               Contact Owner
@@ -126,15 +154,49 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             <div className="mt-6 border-t border-gray-200 pt-6">
               <h3 className="mb-3 font-semibold text-gray-900">Property Details</h3>
               <dl className="space-y-2 text-sm">
+                {/* Rooms */}
+                {listing.rooms && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-600">Rooms:</dt>
+                    <dd className="font-medium text-gray-900">{listing.rooms}</dd>
+                  </div>
+                )}
+                {/* Floor */}
+                {floorDisplay && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-600">Floor:</dt>
+                    <dd className="font-medium text-gray-900">{floorDisplay}</dd>
+                  </div>
+                )}
+                {/* Building Type */}
+                {listing.buildingType && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-600">Building:</dt>
+                    <dd className="font-medium text-gray-900">{listing.buildingType}</dd>
+                  </div>
+                )}
+                {/* Condition */}
+                {listing.condition && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-600">Condition:</dt>
+                    <dd className="font-medium text-gray-900">{listing.condition}</dd>
+                  </div>
+                )}
+                {/* Status */}
                 <div className="flex justify-between">
                   <dt className="text-gray-600">Status:</dt>
                   <dd className="font-medium text-gray-900">{listing.status}</dd>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-600">Listing ID:</dt>
-                  <dd className="font-medium text-gray-900">{listing.id}</dd>
-                </div>
               </dl>
+            </div>
+
+            {/* Owner Info */}
+            <div className="mt-6 border-t border-gray-200 pt-6">
+              <h3 className="mb-3 font-semibold text-gray-900">Listed By</h3>
+              <p className="text-sm text-gray-700">
+                {listing.owner.firstName} {listing.owner.lastName}
+              </p>
+              <p className="text-sm text-gray-500">{listing.owner.phone}</p>
             </div>
           </div>
         </div>

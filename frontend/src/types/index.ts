@@ -44,20 +44,34 @@ export interface Privilege {
   'create_asset'?: boolean;
 }
 
+export interface ListingOwner {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+}
+
 export interface Listing {
   id: string;
-  ownerId: string;
+  owner: ListingOwner;
   title: string;
   description: string;
   price: number;
   city: string;
   images: string[];
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  rejectionReason?: string;
+  listingType: 'FOR_RENT' | 'FOR_SALE';
+  // Extended property details (collected from Telegram bot or web form)
+  rooms?: number;
+  district?: string;
+  floor?: number;
+  totalFloors?: number;
+  buildingType?: string;
+  condition?: string;
+  // Timestamps
   createdAt: string;
   updatedAt: string;
-  approvedAt?: string;
-  approvedBy?: string;
 }
 
 export interface Contract {

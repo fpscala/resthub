@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const baseUrl = `${serverConfig.backendApiUrl}/api/cities`;
+    const baseUrl = `${serverConfig.backendApiUrl}/cities`;
     const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
     const response = await fetch(url, {
       method: 'GET',

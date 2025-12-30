@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Forward request to backend with Bearer token
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/auth/me`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/auth/me`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

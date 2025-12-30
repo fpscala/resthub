@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const queryString = searchParams.toString();
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/listings/my${queryString ? `?${queryString}` : ''}`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/listings/my${queryString ? `?${queryString}` : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

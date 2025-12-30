@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const queryString = searchParams.toString();
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/listings${queryString ? `?${queryString}` : ''}`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/listings${queryString ? `?${queryString}` : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.text();
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/listings`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/listings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const backendUrl = `${serverConfig.backendApiUrl}/api/s3/presign?key=${encodeURIComponent(key)}`;
+    const backendUrl = `${serverConfig.backendApiUrl}/s3/presign?key=${encodeURIComponent(key)}`;
     console.log('Calling backend S3 presign endpoint:', backendUrl);
 
     const response = await fetch(backendUrl, {

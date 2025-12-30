@@ -20,7 +20,7 @@ export async function POST(
 
     const body = await req.text();
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/admin/listings/${params.id}/approve`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/admin/listings/${params.id}/approve`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.text();
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/contracts/generate`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/contracts/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

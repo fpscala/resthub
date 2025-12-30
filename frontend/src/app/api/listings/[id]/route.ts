@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/listings/${params.id}`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/listings/${params.id}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -50,7 +50,7 @@ export async function DELETE(
       );
     }
 
-    const response = await fetch(`${serverConfig.backendApiUrl}/api/listings/${params.id}`, {
+    const response = await fetch(`${serverConfig.backendApiUrl}/listings/${params.id}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

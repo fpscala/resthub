@@ -49,13 +49,31 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
-  // Settings keyboard (language change disabled)
+  // Settings keyboard with language selection enabled
   def settingsKeyboard(language: Language): InlineKeyboardMarkup = {
     val changeModeText = BotMessages.CHANGE_MODE(language)
+    val changeLanguageText = BotMessages.CHANGE_LANGUAGE(language)
 
     val buttons = List(
       List(
         InlineKeyboardButton(changeModeText, callbackData = Some("change_mode"))
+      ),
+      List(
+        InlineKeyboardButton(changeLanguageText, callbackData = Some("change_language"))
+      )
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Language selection keyboard
+  def languageSelectionKeyboard(): InlineKeyboardMarkup = {
+    val buttons = List(
+      List(
+        InlineKeyboardButton(BotMessages.BUTTON_LANGUAGE_UZ, callbackData = Some("set_language_uz"))
+      ),
+      List(
+        InlineKeyboardButton(BotMessages.BUTTON_LANGUAGE_RU, callbackData = Some("set_language_ru"))
       )
     )
 

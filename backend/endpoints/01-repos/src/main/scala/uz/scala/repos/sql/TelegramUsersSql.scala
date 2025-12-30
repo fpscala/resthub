@@ -4,6 +4,7 @@ import doobie._
 import doobie.implicits._
 import doobie.postgres.implicits._
 
+import uz.scala.Language
 import uz.scala.doobie.Sql
 import uz.scala.doobie.syntax.all._
 import uz.scala.repos.dto
@@ -25,4 +26,9 @@ private[repos] object TelegramUsersSql extends Sql[dto.TelegramUser] {
 
   def updatePhoneNumber(telegramId: Long, phoneNumber: String): Update0 =
     sql"""UPDATE $table SET phone_number = $phoneNumber WHERE telegram_id = $telegramId""".update
+
+  def updateLanguage(telegramId: Long, language: Language): Update0 = {
+    val langCode = language.entryName.toLowerCase
+    sql"""UPDATE $table SET language_code = $langCode::language WHERE telegram_id = $telegramId""".update
+  }
 }

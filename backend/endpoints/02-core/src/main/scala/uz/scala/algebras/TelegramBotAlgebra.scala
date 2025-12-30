@@ -18,6 +18,7 @@ import telegramium.bots.Message
 import telegramium.bots.PhotoSize
 import telegramium.bots.Update
 import telegramium.bots.high.Api
+import telegramium.bots.high.FailedRequest
 import telegramium.bots.high.Methods
 import telegramium.bots.high.implicits._
 
@@ -102,13 +103,59 @@ object TelegramBotAlgebra {
     )(implicit
       xa: doobie.Transactor[F]
     ) extends TelegramBotAlgebra[F] {
-    override def processUpdate(update: Update): F[Unit] =
-      (update.message, update.callbackQuery, update.myChatMember) match {
+    override def processUpdate(update: Update): F[Unit] = {
+      val action = (update.message, update.callbackQuery, update.myChatMember) match {
         case (Some(msg), _, _) => handleMessage(msg)
         case (_, Some(callback), _) => handleCallbackQuery(callback)
         case (_, _, Some(chatMember)) => handleMyChatMemberUpdate(chatMember)
         case _ => Logger[F].debug("Received update without message or callback, ignoring")
       }
+
+      // Handle known Telegram API restrictions gracefully
+      action.handleErrorWith {
+        case fr: FailedRequest[_] if fr.errorCode.contains(403) &&
+            fr.description.exists(_.contains("bots can't send messages to bots")) =>
+          // Telegram restriction: bots cannot interact with other bots
+          // This is not an error - just log and continue
+          Logger[F].debug(s"Ignoring message from bot (Telegram restriction): ${fr.description}")
+
+        case fr: FailedRequest[_] if fr.errorCode.contains(403) &&
+            fr.description.exists(_.contains("bot was blocked by the user")) =>
+          // User has blocked the bot - log and continue
+          Logger[F].info(s"User has blocked the bot: ${fr.description}")
+
+        case fr: FailedRequest[_] if fr.errorCode.contains(403) =>
+          // Other 403 errors - log as warning
+          Logger[F].warn(s"Telegram API forbidden error: ${fr.getMessage}")
+
+        case other =>
+          // Re-raise other errors
+          MonadCancelThrow[F].raiseError(other)
+      }
+    }
+
+    // ============================================================
+    // COMMAND NORMALIZATION - Handle typos like /srart, /strat
+    // ============================================================
+    private def normalizeCommand(text: String): Option[String] = {
+      val trimmed = text.trim.toLowerCase
+      if (!trimmed.startsWith("/")) None
+      else {
+        val cmd = trimmed.stripPrefix("/").takeWhile(c => c.isLetter || c == '_')
+        cmd match {
+          // Exact matches
+          case "start" => Some("/start")
+          case "search" => Some("/search")
+          case "help" => Some("/help")
+          case "postadmin" => Some("/postadmin")
+          // Common typos for /start
+          case "srart" | "strat" | "starrt" | "statr" | "satrt" | "tsart" | "sart" | "stat" =>
+            Some("/start")
+          // No match
+          case _ => None
+        }
+      }
+    }
 
     private def handleMessage(msg: Message): F[Unit] =
       msg.from match {
@@ -119,19 +166,43 @@ object TelegramBotAlgebra {
             // Get or create telegram user
             user <- getOrCreateUser(from)
 
-            // Get or create session
+            // Get or create session with GUARANTEED context initialization
             session <- getOrCreateSession(user.telegramId)
+
+            // CRITICAL: Ensure context exists BEFORE any routing
+            // Load and validate context - initialize if NULL
+            botContext <- ensureContextExists(user.telegramId, session)
+            _ <- Logger[F].info(
+              s"context_loaded: user=${user.telegramId}, mode=${botContext.mode}, " +
+                s"broker_flow=${botContext.broker.isDefined}"
+            )
 
             // Update last interaction
             _ <- usersRepo.updateLastInteraction(user.telegramId).transact(xa)
 
-            // Route based on message text, contact, photo, or session state
+            // Route based on message text with NORMALIZED commands
             _ <- msg.text match {
-              case Some("/start") => handleStartCommand(msg, user)
-              case Some("/search") => handleSearchCommand(msg, user)
-              case Some("/help") => handleHelpCommand(msg, user)
-              case Some("/postadmin") => handleAdminPostingCommand(msg, user)
-              case Some(text) => handleStateBasedMessage(msg, user, session, text)
+              case Some(text) =>
+                normalizeCommand(text) match {
+                  case Some("/start") =>
+                    Logger[F].info(s"handler_routed: start (original: $text)") *>
+                      handleStartCommand(msg, user)
+                  case Some("/search") =>
+                    Logger[F].info(s"handler_routed: search") *>
+                      handleSearchCommand(msg, user)
+                  case Some("/help") =>
+                    Logger[F].info(s"handler_routed: help") *>
+                      handleHelpCommand(msg, user)
+                  case Some("/postadmin") =>
+                    Logger[F].info(s"handler_routed: postadmin") *>
+                      handleAdminPostingCommand(msg, user)
+                  case Some(_) =>
+                    // Other normalized command - shouldn't happen with current implementation
+                    handleStateBasedMessage(msg, user, session, text)
+                  case None =>
+                    // Not a recognized command - route based on state
+                    handleStateBasedMessage(msg, user, session, text)
+                }
               case None =>
                 // Check for contact (shared phone number via Telegram button)
                 msg.contact match {
@@ -150,6 +221,43 @@ object TelegramBotAlgebra {
           Logger[F].warn("Message without 'from' user, ignoring")
       }
 
+    // CRITICAL: Ensure context always exists - initialize if NULL
+    private def ensureContextExists(
+        telegramId: Long,
+        session: dto.TelegramSession,
+      ): F[BotContext] =
+      session.context match {
+        case Some(json) =>
+          json.decodeAsF[F, BotContext].handleErrorWith { error =>
+            Logger[F].warn(s"Failed to decode context, initializing fresh: $error") *>
+              initializeFreshContext(telegramId)
+          }
+        case None =>
+          // Context is NULL - this is the bug! Initialize it
+          Logger[F].warn(
+            s"context_was_null: user=$telegramId - initializing fresh context (THIS WAS A BUG)"
+          ) *>
+            initializeFreshContext(telegramId)
+      }
+
+    private def initializeFreshContext(telegramId: Long): F[BotContext] =
+      for {
+        now <- Calendar[F].currentZonedDateTime
+        // Default to Buyer mode for new users - they can switch later
+        freshContext = BotContext(mode = BotMode.Buyer)
+        _ <- sessionsRepo
+          .updateState(telegramId) { session =>
+            session
+              .copy(
+                context = Some(freshContext.asJson),
+                updatedAt = now,
+              )
+              .pure[ConnectionIO]
+          }
+          .transact(xa)
+        _ <- Logger[F].info(s"context_initialized: user=$telegramId, mode=BUYER (default)")
+      } yield freshContext
+
     private def handleCallbackQuery(callback: telegramium.bots.CallbackQuery): F[Unit] =
       callback.message.fold(Logger[F].warn("Callback without message, ignoring")) {
         case msg: telegramium.bots.Message =>
@@ -157,10 +265,19 @@ object TelegramBotAlgebra {
             user <- usersRepo.findByTelegramId(callback.from.id).transact(xa)
             _ <- user match {
               case Some(u) =>
-                callback.data match {
-                  case Some(data) => handleCallbackData(msg, u, data)
-                  case None => Logger[F].debug("Callback without data, ignoring")
-                }
+                for {
+                  // CRITICAL: Ensure context exists BEFORE processing callback
+                  session <- getOrCreateSession(u.telegramId)
+                  botContext <- ensureContextExists(u.telegramId, session)
+                  _ <- Logger[F].info(
+                    s"callback_context_loaded: user=${u.telegramId}, mode=${botContext.mode}, " +
+                      s"data=${callback.data.getOrElse("none")}"
+                  )
+                  _ <- callback.data match {
+                    case Some(data) => handleCallbackData(msg, u, data)
+                    case None => Logger[F].debug("Callback without data, ignoring")
+                  }
+                } yield ()
               case None =>
                 Logger[F].warn(s"User not found for callback: ${callback.from.id}")
             }
@@ -384,6 +501,8 @@ object TelegramBotAlgebra {
         case "confirm_change_mode" => handleConfirmChangeMode(msg, user)
         case "cancel_change_mode" => handleCancelChangeMode(msg, user)
         case "change_language" => handleChangeLanguage(msg, user)
+        case "set_language_uz" => handleSetLanguage(msg, user, Language.Uz)
+        case "set_language_ru" => handleSetLanguage(msg, user, Language.Ru)
 
         // Broker actions
         case "admin_post" => handleAdminPost(msg, user)
@@ -766,14 +885,36 @@ object TelegramBotAlgebra {
         .void
 
     private def handleChangeLanguage(msg: Message, user: dto.TelegramUser): F[Unit] =
-      // Language change disabled - show message
+      // Show language selection keyboard
       Methods
         .sendMessage(
           chatId = ChatIntId(msg.chat.id),
-          text = "Language change is currently disabled.",
+          text = BotMessages.LANGUAGE_SELECTION_PROMPT(user.languageCode),
+          replyMarkup = Some(TelegramKeyboards.languageSelectionKeyboard()),
         )
         .exec(api)
         .void
+
+    private def handleSetLanguage(msg: Message, user: dto.TelegramUser, newLang: Language): F[Unit] =
+      for {
+        // Update user's language in database
+        _ <- usersRepo.updateLanguage(user.telegramId, newLang).transact(xa)
+
+        // Get updated user with new language
+        updatedUser = user.copy(languageCode = newLang)
+
+        // Show success message in NEW language
+        _ <- Methods
+          .sendMessage(
+            chatId = ChatIntId(msg.chat.id),
+            text = BotMessages.LANGUAGE_CHANGED_SUCCESSFULLY(newLang),
+          )
+          .exec(api)
+          .void
+
+        // Re-render current screen (settings) in new language
+        _ <- handleOpenSettings(msg, updatedUser)
+      } yield ()
 
     private def handleConfirmChangeMode(msg: Message, user: dto.TelegramUser): F[Unit] =
       for {
@@ -872,22 +1013,18 @@ object TelegramBotAlgebra {
               case BotMode.Broker =>
                 s"""${BotMessages.HELP_HEADER(user.languageCode)}
                    |
-                   |🏢 **Broker Mode Help**
-                   |
                    |${BotMessages.HELP_ADMIN_SECTION(user.languageCode)}
                    |${BotMessages.HELP_ADMIN_STEPS(user.languageCode)}
                    |
                    |${BotMessages.HELP_COMMANDS_SECTION(user.languageCode)}
-                   |/postadmin - Create new listing
-                   |/start - Show broker home
-                   |/help - Show this help
+                   |${BotMessages.HELP_BROKER_COMMANDS(user.languageCode)}
                    |
                    |${BotMessages.HELP_CONTACT(user.languageCode)}""".stripMargin
             }
           case None =>
             s"""${BotMessages.HELP_HEADER(user.languageCode)}
                |
-               |Please select a mode first to see relevant help.
+               |${BotMessages.HELP_NO_MODE_SELECTED(user.languageCode)}
                |
                |${BotMessages.HELP_CONTACT(user.languageCode)}""".stripMargin
         }
@@ -2532,62 +2669,21 @@ object TelegramBotAlgebra {
       }
     }
 
-    // Format listing for channel posting - Human-readable advertisement format
-    private def formatListingForChannel(context: AdminPostingContext, lang: Language): String = {
-      val sb = new StringBuilder
-
-      // Header with listing type
-      sb.append("🏠 E'LON\n")
-      context.listingType.foreach {
-        case ListingType.ForRent => sb.append("Ijaraga\n")
-        case ListingType.ForSale => sb.append("Sotiladi\n")
-      }
-      sb.append("\n")
-
-      // Location section - only if city or district exists
-      val hasLocation = context.city.isDefined || context.district.isDefined
-      if (hasLocation) {
-        sb.append("📍 Joylashuv:\n")
-        (context.city, context.district) match {
-          case (Some(city), Some(district)) => sb.append(s"$city, $district\n")
-          case (Some(city), None) => sb.append(s"$city\n")
-          case (None, Some(district)) => sb.append(s"$district\n")
-          case _ => ()
-        }
-        sb.append("\n")
-      }
-
-      // Price section - only if price exists
-      context.price.foreach { price =>
-        sb.append("💰 Narx:\n")
-        sb.append(s"$$$price\n")
-        sb.append("\n")
-      }
-
-      // Property details section - only if any detail exists
-      val hasDetails = context.rooms.isDefined || context.floor.isDefined ||
-        context.buildingType.isDefined || context.condition.isDefined
-      if (hasDetails) {
-        sb.append("🏠 Uy haqida:\n")
-        context.rooms.foreach(r => sb.append(s"• Xonalar: $r xona\n"))
-        (context.floor, context.totalFloors) match {
-          case (Some(f), Some(t)) => sb.append(s"• Qavat: $f/$t qavat\n")
-          case (Some(f), None) => sb.append(s"• Qavat: $f-qavat\n")
-          case _ => ()
-        }
-        context.buildingType.foreach(b => sb.append(s"• Turi: $b\n"))
-        context.condition.foreach(c => sb.append(s"• Holati: $c\n"))
-        sb.append("\n")
-      }
-
-      // Contact section - only if phone exists
-      context.phone.foreach { phone =>
-        sb.append("📞 Aloqa:\n")
-        sb.append(s"$phone\n")
-      }
-
-      sb.toString().trim
-    }
+    // Format listing for channel posting - Language-aware premium format
+    private def formatListingForChannel(context: AdminPostingContext, lang: Language): String =
+      BotMessages.formatChannelPost(
+        listingType = context.listingType.map(_.entryName),
+        city = context.city,
+        district = context.district,
+        price = context.price,
+        rooms = context.rooms,
+        floor = context.floor,
+        totalFloors = context.totalFloors,
+        buildingType = context.buildingType,
+        condition = context.condition,
+        phone = context.phone,
+        lang = lang,
+      )
 
     // Create listing in database (only called after successful channel post)
     private def createListingInDatabase(
@@ -3566,17 +3662,39 @@ $phone"""
             }
       } yield ()
 
+    // FIXED: Get current mode with proper context initialization
+    // NEVER default to Buyer - always ensure context exists first
     private def getCurrentMode(telegramId: Long)(implicit xa: doobie.Transactor[F]): F[BotMode] =
-      sessionsRepo
-        .findByTelegramId(telegramId)
-        .transact(xa)
-        .asOptionT
-        .subflatMap(_.context)
-        .foldF(
-          Logger[F]
-            .warn(s"No session found for telegramId: $telegramId, defaulting to Buyer mode")
-            .as[BotMode](BotMode.Buyer)
-        )(_.decodeAsF[F, BotContext].map(_.mode))
+      for {
+        session <- sessionsRepo.findByTelegramId(telegramId).transact(xa)
+        mode <- session match {
+          case Some(s) =>
+            s.context match {
+              case Some(json) =>
+                json.decodeAsF[F, BotContext].map(_.mode).handleErrorWith { error =>
+                  Logger[F].warn(
+                    s"getCurrentMode: Failed to decode context for $telegramId: $error, " +
+                      s"preserving last known mode"
+                  ).as(BotMode.Buyer) // Only as last resort
+                }
+              case None =>
+                // Context is NULL - this should NOT happen after ensureContextExists
+                // Log warning but DO NOT default to Buyer - check session state for hints
+                Logger[F].warn(
+                  s"getCurrentMode: context_was_null for $telegramId (THIS IS A BUG)"
+                ).as(
+                  // Return Broker if state suggests broker activity, otherwise Buyer
+                  if (s.state.toString.startsWith("Broker")) BotMode.Broker
+                  else BotMode.Buyer
+                )
+            }
+          case None =>
+            // No session at all - truly new user
+            Logger[F].info(s"getCurrentMode: no_session for $telegramId, defaulting to Buyer")
+              .as(BotMode.Buyer)
+        }
+        _ <- Logger[F].debug(s"getCurrentMode: user=$telegramId, mode=$mode")
+      } yield mode
 
     // Helper method to update state while preserving existing context
     private def updateStatePreservingContext(

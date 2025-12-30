@@ -792,4 +792,251 @@ Iltimos, botning kanallarda admin ekanligini tekshiring va qayta urinib ko'ring.
 
 Please check that the bot is an admin in your channels and try again."""
   }
+
+  // ============================================================
+  // LANGUAGE SYSTEM - i18n MESSAGES
+  // ============================================================
+
+  val LANGUAGE_SELECTION_PROMPT: Map[Language, String] = Map(
+    Uz -> "🌐 Tilni tanlang:",
+    Ru -> "🌐 Выберите язык:",
+    En -> "🌐 Select language:"
+  )
+
+  val LANGUAGE_CHANGED_SUCCESSFULLY: Map[Language, String] = Map(
+    Uz -> "✅ Til muvaffaqiyatli o'zgartirildi!",
+    Ru -> "✅ Язык успешно изменен!",
+    En -> "✅ Language changed successfully!"
+  )
+
+  val BUTTON_LANGUAGE_UZ: String = "🇺🇿 O'zbekcha"
+  val BUTTON_LANGUAGE_RU: String = "🇷🇺 Русский"
+
+  // ============================================================
+  // CHANNEL POST - PREMIUM FORMAT TRANSLATIONS
+  // ============================================================
+
+  val CHANNEL_POST_HEADER: Map[Language, String] = Map(
+    Uz -> "🏠 E'LON",
+    Ru -> "🏠 ОБЪЯВЛЕНИЕ",
+    En -> "🏠 LISTING"
+  )
+
+  val CHANNEL_POST_FOR_RENT: Map[Language, String] = Map(
+    Uz -> "Ijaraga",
+    Ru -> "В аренду",
+    En -> "For Rent"
+  )
+
+  val CHANNEL_POST_FOR_SALE: Map[Language, String] = Map(
+    Uz -> "Sotiladi",
+    Ru -> "На продажу",
+    En -> "For Sale"
+  )
+
+  val CHANNEL_POST_LOCATION: Map[Language, String] = Map(
+    Uz -> "📍 Joylashuv:",
+    Ru -> "📍 Расположение:",
+    En -> "📍 Location:"
+  )
+
+  val CHANNEL_POST_PRICE: Map[Language, String] = Map(
+    Uz -> "💰 Narx:",
+    Ru -> "💰 Цена:",
+    En -> "💰 Price:"
+  )
+
+  val CHANNEL_POST_ABOUT: Map[Language, String] = Map(
+    Uz -> "🏡 Uy haqida:",
+    Ru -> "🏡 О квартире:",
+    En -> "🏡 About property:"
+  )
+
+  val CHANNEL_POST_ROOMS: Map[Language, String] = Map(
+    Uz -> "Xonalar",
+    Ru -> "Комнат",
+    En -> "Rooms"
+  )
+
+  val CHANNEL_POST_FLOOR: Map[Language, String] = Map(
+    Uz -> "Qavat",
+    Ru -> "Этаж",
+    En -> "Floor"
+  )
+
+  val CHANNEL_POST_TYPE: Map[Language, String] = Map(
+    Uz -> "Turi",
+    Ru -> "Тип",
+    En -> "Type"
+  )
+
+  val CHANNEL_POST_CONDITION: Map[Language, String] = Map(
+    Uz -> "Holati",
+    Ru -> "Состояние",
+    En -> "Condition"
+  )
+
+  val CHANNEL_POST_CONTACT: Map[Language, String] = Map(
+    Uz -> "📞 Aloqa:",
+    Ru -> "📞 Контакт:",
+    En -> "📞 Contact:"
+  )
+
+  // Building types - translated
+  val BUILDING_TYPE_APARTMENT: Map[Language, String] = Map(
+    Uz -> "Kvartira",
+    Ru -> "Квартира",
+    En -> "Apartment"
+  )
+
+  val BUILDING_TYPE_HOUSE: Map[Language, String] = Map(
+    Uz -> "Hovli",
+    Ru -> "Дом",
+    En -> "House"
+  )
+
+  val BUILDING_TYPE_OFFICE: Map[Language, String] = Map(
+    Uz -> "Ofis",
+    Ru -> "Офис",
+    En -> "Office"
+  )
+
+  // Condition types - translated
+  val CONDITION_GOOD: Map[Language, String] = Map(
+    Uz -> "Yaxshi",
+    Ru -> "Хорошее",
+    En -> "Good"
+  )
+
+  val CONDITION_EXCELLENT: Map[Language, String] = Map(
+    Uz -> "Zo'r",
+    Ru -> "Отличное",
+    En -> "Excellent"
+  )
+
+  val CONDITION_NEEDS_REPAIR: Map[Language, String] = Map(
+    Uz -> "Ta'mir talab",
+    Ru -> "Требует ремонта",
+    En -> "Needs repair"
+  )
+
+  // Help broker commands section - translated
+  val HELP_BROKER_COMMANDS: Map[Language, String] = Map(
+    Uz -> "/postadmin - Yangi e'lon yaratish\n/start - Broker asosiy menyu\n/help - Yordam ko'rsatish",
+    Ru -> "/postadmin - Создать объявление\n/start - Главное меню брокера\n/help - Показать помощь",
+    En -> "/postadmin - Create new listing\n/start - Show broker home\n/help - Show this help"
+  )
+
+  // Help message for no mode selected
+  val HELP_NO_MODE_SELECTED: Map[Language, String] = Map(
+    Uz -> "Tegishli yordam ko'rish uchun avval rejimni tanlang.",
+    Ru -> "Пожалуйста, сначала выберите режим, чтобы увидеть релевантную помощь.",
+    En -> "Please select a mode first to see relevant help."
+  )
+
+  // Helper to translate building type
+  def translateBuildingType(buildingType: String, lang: Language): String = {
+    buildingType.toLowerCase match {
+      case "kvartira" | "квартира" | "apartment" => BUILDING_TYPE_APARTMENT(lang)
+      case "hovli" | "дом" | "house" => BUILDING_TYPE_HOUSE(lang)
+      case "ofis" | "офис" | "office" => BUILDING_TYPE_OFFICE(lang)
+      case _ => buildingType // Keep original if unknown
+    }
+  }
+
+  // Helper to translate condition
+  def translateCondition(condition: String, lang: Language): String = {
+    condition.toLowerCase match {
+      case "yaxshi" | "хорошее" | "good" => CONDITION_GOOD(lang)
+      case "zo'r" | "отличное" | "excellent" => CONDITION_EXCELLENT(lang)
+      case "ta'mir talab" | "требует ремонта" | "needs repair" => CONDITION_NEEDS_REPAIR(lang)
+      case _ => condition // Keep original if unknown
+    }
+  }
+
+  // Format channel post with proper language - PREMIUM FORMAT
+  // Note: listingType is passed as String ("ForRent" or "ForSale") to avoid circular dependency
+  def formatChannelPost(
+      listingType: Option[String],
+      city: Option[String],
+      district: Option[String],
+      price: Option[BigDecimal],
+      rooms: Option[Int],
+      floor: Option[Int],
+      totalFloors: Option[Int],
+      buildingType: Option[String],
+      condition: Option[String],
+      phone: Option[String],
+      lang: Language,
+    ): String = {
+    val sb = new StringBuilder
+
+    // Header with listing type
+    sb.append(CHANNEL_POST_HEADER(lang))
+    sb.append("\n")
+    listingType.foreach { lt =>
+      val typeText = lt match {
+        case "ForRent" => CHANNEL_POST_FOR_RENT(lang)
+        case "ForSale" => CHANNEL_POST_FOR_SALE(lang)
+        case _ => lt // Fallback to original value
+      }
+      sb.append(typeText)
+      sb.append("\n")
+    }
+    sb.append("\n")
+
+    // Location section - only if city or district exists
+    val hasLocation = city.isDefined || district.isDefined
+    if (hasLocation) {
+      sb.append(CHANNEL_POST_LOCATION(lang))
+      sb.append("\n")
+      (city, district) match {
+        case (Some(c), Some(d)) => sb.append(s"$c, $d\n")
+        case (Some(c), None) => sb.append(s"$c\n")
+        case (None, Some(d)) => sb.append(s"$d\n")
+        case _ => ()
+      }
+      sb.append("\n")
+    }
+
+    // Price section - only if price exists
+    price.foreach { p =>
+      sb.append(CHANNEL_POST_PRICE(lang))
+      sb.append("\n")
+      sb.append(s"$$$p\n")
+      sb.append("\n")
+    }
+
+    // Property details section - only if any detail exists
+    val hasDetails = rooms.isDefined || floor.isDefined ||
+      buildingType.isDefined || condition.isDefined
+    if (hasDetails) {
+      sb.append(CHANNEL_POST_ABOUT(lang))
+      sb.append("\n")
+      rooms.foreach { r =>
+        sb.append(s"• ${CHANNEL_POST_ROOMS(lang)}: $r\n")
+      }
+      (floor, totalFloors) match {
+        case (Some(f), Some(t)) => sb.append(s"• ${CHANNEL_POST_FLOOR(lang)}: $f/$t\n")
+        case (Some(f), None) => sb.append(s"• ${CHANNEL_POST_FLOOR(lang)}: $f\n")
+        case _ => ()
+      }
+      buildingType.foreach { b =>
+        sb.append(s"• ${CHANNEL_POST_TYPE(lang)}: ${translateBuildingType(b, lang)}\n")
+      }
+      condition.foreach { c =>
+        sb.append(s"• ${CHANNEL_POST_CONDITION(lang)}: ${translateCondition(c, lang)}\n")
+      }
+      sb.append("\n")
+    }
+
+    // Contact section - only if phone exists
+    phone.foreach { p =>
+      sb.append(CHANNEL_POST_CONTACT(lang))
+      sb.append("\n")
+      sb.append(s"$p\n")
+    }
+
+    sb.toString().trim
+  }
 }

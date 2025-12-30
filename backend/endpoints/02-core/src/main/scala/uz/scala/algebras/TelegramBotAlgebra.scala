@@ -520,6 +520,35 @@ object TelegramBotAlgebra {
         // Phone selection
         case phoneData if phoneData.startsWith("phone_") =>
           phoneData.stripPrefix("phone_") match {
+            // NEW: Use stored phone number
+            case "use_stored" =>
+              user.phoneNumber match {
+                case Some(storedPhone) =>
+                  // Use stored phone directly - no need to ask again
+                  handlePhonePostingSelection(msg, user, Some(storedPhone))
+                case None =>
+                  // Fallback: no stored phone (shouldn't happen)
+                  Logger[F].warn(s"phone_use_stored clicked but no stored phone for user ${user.telegramId}") *>
+                    handlePhonePostingSelection(msg, user, None)
+              }
+            // NEW: Enter a different phone number
+            case "enter_new" =>
+              for {
+                _ <- updateStatePreservingContext(
+                  user.telegramId,
+                  BotState.BrokerAwaitingPhone,
+                  user.languageCode,
+                )
+                // Show the standard phone keyboard (share contact or manual)
+                _ <- Methods
+                  .sendMessage(
+                    chatId = ChatIntId(msg.chat.id),
+                    text = BotMessages.PROMPT_PHONE_BUTTON(user.languageCode),
+                    replyMarkup = Some(TelegramKeyboards.phoneKeyboard(user.languageCode)),
+                  )
+                  .exec(api)
+                  .void
+              } yield ()
             case "share_contact" =>
               for {
                 _ <- updateStatePreservingContext(
@@ -602,23 +631,28 @@ object TelegramBotAlgebra {
             case "skip" => handleDistrictPostingSelection(msg, user, None)
           }
 
-        // Floor selection
+        // Floor selection - DYNAMIC: handles any floor number
         case floorData if floorData.startsWith("floor_") =>
           floorData.stripPrefix("floor_") match {
-            case "1" => handleFloorPostingSelection(msg, user, Some(1))
-            case "2" => handleFloorPostingSelection(msg, user, Some(2))
-            case "3" => handleFloorPostingSelection(msg, user, Some(3))
-            case "4+" => handleFloorPostingSelection(msg, user, Some(4))
             case "skip" => handleFloorPostingSelection(msg, user, None)
+            case "custom" => handleFloorCustomInput(msg, user)
+            case numStr =>
+              numStr.toIntOption match {
+                case Some(floor) => handleFloorWithValidation(msg, user, floor)
+                case None => Logger[F].warn(s"Invalid floor callback: $numStr")
+              }
           }
 
-        // Total floors selection
+        // Total floors selection - MODERN: handles common building heights
         case totalFloorsData if totalFloorsData.startsWith("total_floors_") =>
           totalFloorsData.stripPrefix("total_floors_") match {
-            case "3" => handleTotalFloorsPostingSelection(msg, user, Some(3))
-            case "5" => handleTotalFloorsPostingSelection(msg, user, Some(5))
-            case "9" => handleTotalFloorsPostingSelection(msg, user, Some(9))
             case "skip" => handleTotalFloorsPostingSelection(msg, user, None)
+            case "custom" => handleTotalFloorsCustomInput(msg, user)
+            case numStr =>
+              numStr.toIntOption match {
+                case Some(floors) => handleTotalFloorsPostingSelection(msg, user, Some(floors))
+                case None => Logger[F].warn(s"Invalid total floors callback: $numStr")
+              }
           }
 
         // Building type selection
@@ -2005,23 +2039,13 @@ object TelegramBotAlgebra {
       val normalized = text.toLowerCase.trim
 
       if (normalized == "skip" || normalized == "tashlab" || normalized == "пропустить")
-        updateAdminContextAndNextStep(
-          user.telegramId,
-          msg.chat.id,
-          _.copy(rooms = None),
-          BotState.BrokerAwaitingPhone,
-          user.languageCode,
-        )
+        // Save rooms and transition to phone with REUSE check
+        transitionToPhoneStep(msg, user, None)
       else
         normalized.toIntOption match {
           case Some(rooms) if rooms > 0 =>
-            updateAdminContextAndNextStep(
-              user.telegramId,
-              msg.chat.id,
-              _.copy(rooms = Some(rooms)),
-              BotState.BrokerAwaitingPhone,
-              user.languageCode,
-            )
+            // Save rooms and transition to phone with REUSE check
+            transitionToPhoneStep(msg, user, Some(rooms))
           case _ =>
             val errorText = BotMessages.ERROR_INVALID_ROOMS(user.languageCode)
             Methods
@@ -2030,6 +2054,74 @@ object TelegramBotAlgebra {
               .void
         }
     }
+
+    // PHONE REUSE: Transition to phone step with smart keyboard selection
+    // If user has stored phone, show reuse keyboard; otherwise show new phone keyboard
+    private def transitionToPhoneStep(
+        msg: Message,
+        user: dto.TelegramUser,
+        rooms: Option[Int],
+      ): F[Unit] =
+      for {
+        // Update context with rooms and set state to BrokerAwaitingPhone
+        _ <- sessionsRepo
+          .updateState(user.telegramId) { session =>
+            for {
+              now <- Calendar[ConnectionIO].currentZonedDateTime
+              updated <- session.context
+                .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                  _.decodeAsF[ConnectionIO, BotContext]
+                )
+                .map { context =>
+                  val brokerFlow = context.broker.getOrElse(
+                    BrokerFlowContext(
+                      draft = AdminPostingContext(
+                        forwardedMessage = ForwardedMessage(None, List.empty, None)
+                      ),
+                      currentStep = BrokerStep.Start,
+                    )
+                  )
+                  val updatedDraft = brokerFlow.draft.copy(rooms = rooms)
+                  session.copy(
+                    state = BotState.BrokerAwaitingPhone,
+                    context = Some(
+                      context.copy(broker = Some(brokerFlow.copy(draft = updatedDraft))).asJson
+                    ),
+                    updatedAt = now,
+                  )
+                }
+            } yield updated
+          }
+          .transact(xa)
+
+        // Check if user has stored phone
+        _ <- user.phoneNumber match {
+          case Some(storedPhone) =>
+            // User has stored phone - show REUSE keyboard
+            val promptText = BotMessages.PROMPT_PHONE_REUSE(user.languageCode)
+            val keyboard = TelegramKeyboards.phoneReuseKeyboard(storedPhone, user.languageCode)
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = promptText,
+                replyMarkup = Some(keyboard),
+              )
+              .exec(api)
+              .void
+          case None =>
+            // No stored phone - show standard phone keyboard
+            val promptText = BotMessages.PROMPT_PHONE_BUTTON(user.languageCode)
+            val keyboard = TelegramKeyboards.phoneKeyboard(user.languageCode)
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = promptText,
+                replyMarkup = Some(keyboard),
+              )
+              .exec(api)
+              .void
+        }
+      } yield ()
 
     private def handlePhoneInput(
         msg: Message,
@@ -2303,6 +2395,7 @@ object TelegramBotAlgebra {
       }
     }
 
+    // UPDATED: Floor input with validation against totalFloors
     private def handleFloorInput(
         msg: Message,
         user: dto.TelegramUser,
@@ -2312,23 +2405,19 @@ object TelegramBotAlgebra {
       val normalized = text.toLowerCase.trim
 
       if (normalized == "skip" || normalized == "tashlab" || normalized == "пропустить")
+        // FIXED FLOW: Floor → BuildingType
         updateAdminContextAndNextStep(
           user.telegramId,
           msg.chat.id,
           _.copy(floor = None),
-          BotState.BrokerAwaitingTotalFloors,
+          BotState.BrokerAwaitingBuildingType,
           user.languageCode,
         )
       else
         normalized.toIntOption match {
           case Some(floor) if floor > 0 =>
-            updateAdminContextAndNextStep(
-              user.telegramId,
-              msg.chat.id,
-              _.copy(floor = Some(floor)),
-              BotState.BrokerAwaitingTotalFloors,
-              user.languageCode,
-            )
+            // Validate floor against totalFloors
+            handleFloorWithValidation(msg, user, floor)
           case _ =>
             val errorText = BotMessages.ERROR_INVALID_FLOOR(user.languageCode)
             Methods
@@ -2338,6 +2427,7 @@ object TelegramBotAlgebra {
         }
     }
 
+    // UPDATED: TotalFloors input - now goes to Floor (with dynamic keyboard)
     private def handleTotalFloorsInput(
         msg: Message,
         user: dto.TelegramUser,
@@ -2347,23 +2437,13 @@ object TelegramBotAlgebra {
       val normalized = text.toLowerCase.trim
 
       if (normalized == "skip" || normalized == "tashlab" || normalized == "пропустить")
-        updateAdminContextAndNextStep(
-          user.telegramId,
-          msg.chat.id,
-          _.copy(totalFloors = None),
-          BotState.BrokerAwaitingBuildingType,
-          user.languageCode,
-        )
+        // Use the new handler that shows dynamic floor keyboard
+        handleTotalFloorsPostingSelection(msg, user, None)
       else
         normalized.toIntOption match {
-          case Some(totalFloors) if totalFloors > 0 =>
-            updateAdminContextAndNextStep(
-              user.telegramId,
-              msg.chat.id,
-              _.copy(totalFloors = Some(totalFloors)),
-              BotState.BrokerAwaitingBuildingType,
-              user.languageCode,
-            )
+          case Some(totalFloors) if totalFloors > 0 && totalFloors <= 50 =>
+            // Use the new handler that shows dynamic floor keyboard
+            handleTotalFloorsPostingSelection(msg, user, Some(totalFloors))
           case _ =>
             val errorText = BotMessages.ERROR_INVALID_TOTAL_FLOORS(user.languageCode)
             Methods
@@ -3243,11 +3323,12 @@ object TelegramBotAlgebra {
         user: dto.TelegramUser,
         district: Option[String],
       ): F[Unit] =
+      // FIXED FLOW ORDER: District → TotalFloors → Floor → BuildingType
       updateAdminContextAndNextStep(
         telegramId = user.telegramId,
         chatId = msg.chat.id,
         updateFn = _.copy(district = district),
-        nextState = BotState.BrokerAwaitingFloor,
+        nextState = BotState.BrokerAwaitingTotalFloors,
         lang = user.languageCode,
       )
 
@@ -3256,11 +3337,12 @@ object TelegramBotAlgebra {
         user: dto.TelegramUser,
         floor: Option[Int],
       ): F[Unit] =
+      // FIXED FLOW: Floor → BuildingType (after TotalFloors)
       updateAdminContextAndNextStep(
         telegramId = user.telegramId,
         chatId = msg.chat.id,
         updateFn = _.copy(floor = floor),
-        nextState = BotState.BrokerAwaitingTotalFloors,
+        nextState = BotState.BrokerAwaitingBuildingType,
         lang = user.languageCode,
       )
 
@@ -3269,13 +3351,162 @@ object TelegramBotAlgebra {
         user: dto.TelegramUser,
         totalFloors: Option[Int],
       ): F[Unit] =
-      updateAdminContextAndNextStep(
-        telegramId = user.telegramId,
-        chatId = msg.chat.id,
-        updateFn = _.copy(totalFloors = totalFloors),
-        nextState = BotState.BrokerAwaitingBuildingType,
-        lang = user.languageCode,
-      )
+      // FIXED FLOW: TotalFloors → Floor (with dynamic keyboard)
+      // Need to save totalFloors first, then show dynamic floor keyboard
+      for {
+        _ <- sessionsRepo
+          .updateState(user.telegramId) { session =>
+            for {
+              now <- Calendar[ConnectionIO].currentZonedDateTime
+              updated <- session.context
+                .fold(BotContext(BotMode.Broker).pure[ConnectionIO])(
+                  _.decodeAsF[ConnectionIO, BotContext]
+                )
+                .map { context =>
+                  val brokerFlow = context.broker.getOrElse(
+                    BrokerFlowContext(
+                      draft = AdminPostingContext(
+                        forwardedMessage = ForwardedMessage(None, List.empty, None)
+                      ),
+                      currentStep = BrokerStep.Start,
+                    )
+                  )
+                  val updatedDraft = brokerFlow.draft.copy(totalFloors = totalFloors)
+                  session.copy(
+                    state = BotState.BrokerAwaitingFloor,
+                    context = Some(
+                      context.copy(broker = Some(brokerFlow.copy(draft = updatedDraft))).asJson
+                    ),
+                    updatedAt = now,
+                  )
+                }
+            } yield updated
+          }
+          .transact(xa)
+        // Show dynamic floor keyboard based on totalFloors
+        _ <- totalFloors match {
+          case Some(tf) =>
+            val promptText = BotMessages.PROMPT_FLOOR_DYNAMIC(user.languageCode)
+            val keyboard = TelegramKeyboards.dynamicFloorKeyboard(tf, user.languageCode)
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = promptText,
+                replyMarkup = Some(keyboard),
+              )
+              .exec(api)
+              .void
+          case None =>
+            // If skipped total floors, use default floor keyboard
+            val promptText = BotMessages.PROMPT_FLOOR_BUTTON(user.languageCode)
+            val keyboard = TelegramKeyboards.floorKeyboard(user.languageCode)
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = promptText,
+                replyMarkup = Some(keyboard),
+              )
+              .exec(api)
+              .void
+        }
+      } yield ()
+
+    // Floor validation: ensure floor <= totalFloors
+    private def handleFloorWithValidation(
+        msg: Message,
+        user: dto.TelegramUser,
+        floor: Int,
+      ): F[Unit] =
+      for {
+        session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
+        botContext <- session
+          .flatMap(_.context)
+          .traverse(_.decodeAsF[F, BotContext])
+          .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
+        totalFloors = botContext.broker.flatMap(_.draft.totalFloors)
+        _ <- totalFloors match {
+          case Some(tf) if floor > tf =>
+            // VALIDATION FAILED: floor > totalFloors
+            val errorText = BotMessages.errorFloorExceedsTotal(tf, user.languageCode)
+            val keyboard = TelegramKeyboards.dynamicFloorKeyboard(tf, user.languageCode)
+            Methods
+              .sendMessage(
+                chatId = ChatIntId(msg.chat.id),
+                text = errorText,
+                replyMarkup = Some(keyboard),
+              )
+              .exec(api)
+              .void
+          case _ =>
+            // VALIDATION PASSED: proceed with floor selection
+            handleFloorPostingSelection(msg, user, Some(floor))
+        }
+      } yield ()
+
+    // Handle custom floor input request
+    private def handleFloorCustomInput(
+        msg: Message,
+        user: dto.TelegramUser,
+      ): F[Unit] =
+      for {
+        session <- sessionsRepo.findByTelegramId(user.telegramId).transact(xa)
+        botContext <- session
+          .flatMap(_.context)
+          .traverse(_.decodeAsF[F, BotContext])
+          .map(_.getOrElse(BotContext(mode = BotMode.Buyer)))
+        totalFloors = botContext.broker.flatMap(_.draft.totalFloors)
+        promptText = totalFloors match {
+          case Some(tf) =>
+            user.languageCode match {
+              case Language.Uz => s"✍️ Qavatni kiriting (1-$tf):"
+              case Language.Ru => s"✍️ Введите этаж (1-$tf):"
+              case Language.En => s"✍️ Enter floor (1-$tf):"
+            }
+          case None =>
+            BotMessages.PROMPT_FLOOR(user.languageCode)
+        }
+        _ <- sessionsRepo
+          .updateState(user.telegramId) { session =>
+            for {
+              now <- Calendar[ConnectionIO].currentZonedDateTime
+            } yield session.copy(
+              state = BotState.BrokerAwaitingFloor,
+              updatedAt = now,
+            )
+          }
+          .transact(xa)
+        _ <- Methods
+          .sendMessage(chatId = ChatIntId(msg.chat.id), text = promptText)
+          .exec(api)
+          .void
+      } yield ()
+
+    // Handle custom total floors input request
+    private def handleTotalFloorsCustomInput(
+        msg: Message,
+        user: dto.TelegramUser,
+      ): F[Unit] =
+      for {
+        _ <- sessionsRepo
+          .updateState(user.telegramId) { session =>
+            for {
+              now <- Calendar[ConnectionIO].currentZonedDateTime
+            } yield session.copy(
+              state = BotState.BrokerAwaitingTotalFloors,
+              updatedAt = now,
+            )
+          }
+          .transact(xa)
+        promptText = user.languageCode match {
+          case Language.Uz => "✍️ Binoning qavatlar sonini kiriting (1-50):"
+          case Language.Ru => "✍️ Введите количество этажей (1-50):"
+          case Language.En => "✍️ Enter total floors (1-50):"
+        }
+        _ <- Methods
+          .sendMessage(chatId = ChatIntId(msg.chat.id), text = promptText)
+          .exec(api)
+          .void
+      } yield ()
 
     private def handleBuildingTypePostingSelection(
         msg: Message,
@@ -3558,77 +3789,53 @@ object TelegramBotAlgebra {
 
       } yield Some(message.messageId.toString)
 
+    // TELEGRAM CHANNEL POST: Uses unified MODERN PREMIUM FORMAT
     private def formatListingForTelegram(
         context: AdminPostingContext,
         lang: Language,
-      ): String = {
-      val title = context.forwardedMessage.text.getOrElse("")
-      val price = context.price.map(p => s"💰 $$p").getOrElse("Narx kelishilmagan")
-      val city = context.city.map(c => s"🏙️ $c").getOrElse("")
-      val rooms = context.rooms.map(r => s"🏠 $r xonali").getOrElse("")
-      val phone = context.phone.map(p => s"📞 $p").getOrElse("")
-      val district = context.district.map(d => s"📍 $d").getOrElse("")
+      ): String =
+      BotMessages.formatChannelPost(
+        listingType = context.listingType.map(_.entryName),
+        city = context.city,
+        district = context.district,
+        price = context.price,
+        rooms = context.rooms,
+        floor = context.floor,
+        totalFloors = context.totalFloors,
+        buildingType = context.buildingType,
+        condition = context.condition,
+        phone = context.phone,
+        lang = lang,
+      )
 
-      val typeEmoji = context.listingType match {
-        case Some(ListingType.ForRent) => "🔑 Ijaraga"
-        case Some(ListingType.ForSale) => "💰 Sotishga"
-        case None => "🏠 E'lon"
-      }
-
-      s"""<b>$typeEmoji</b>
-
-$title
-
-$price
-$city
-$rooms
-$district
-
-$phone"""
-    }
-
+    // PREVIEW: Uses EXACT same format as channel post (MODERN DESIGN)
     private def formatPreviewText(
         context: uz.scala.domain.telegram.AdminPostingContext,
         lang: Language,
       ): String = {
       val header = LISTING_PREVIEW_HEADER(lang)
-
-      val typeStr = context.listingType.map(_.valueUz).getOrElse("")
-      val priceStr = context.price.map(p => s"$$$p").getOrElse("")
-      val cityStr = context.city.getOrElse("")
-      val roomsStr = context.rooms.map(r => s"$r xona").getOrElse("")
-      val phoneStr = context.phone.getOrElse("")
-      val districtStr = context.district.getOrElse("")
-      val floorStr = context.floor.map(f => s"$f-qavat").getOrElse("")
-      val totalFloorsStr = context.totalFloors.map(tf => s"$tf qavatli").getOrElse("")
-      val buildingTypeStr = context.buildingType.getOrElse("")
-      val conditionStr = context.condition.getOrElse("")
-
-      val originalText =
-        context.forwardedMessage.text.map(text => s"📄 Asl matn:\n$text\n").getOrElse("")
-      val districtLine = if (districtStr.nonEmpty) s"📍 Tuman: $districtStr\n" else ""
-      val floorLine = if (floorStr.nonEmpty) s"🏢 Qavat: $floorStr\n" else ""
-      val totalFloorsLine = if (totalFloorsStr.nonEmpty) s"🏢 Bino: $totalFloorsStr\n" else ""
-      val buildingTypeLine = if (buildingTypeStr.nonEmpty) s"🏢 Turi: $buildingTypeStr\n" else ""
-      val conditionLine = if (conditionStr.nonEmpty) s"✨ Holati: $conditionStr\n" else ""
-
       val confirmText = BotMessages.CONFIRM_ASK(lang)
 
+      // Use the unified channel post format for preview
+      val channelPostFormat = BotMessages.formatChannelPost(
+        listingType = context.listingType.map(_.entryName),
+        city = context.city,
+        district = context.district,
+        price = context.price,
+        rooms = context.rooms,
+        floor = context.floor,
+        totalFloors = context.totalFloors,
+        buildingType = context.buildingType,
+        condition = context.condition,
+        phone = context.phone,
+        lang = lang,
+      )
+
       s"""$header
-         |
-         |$originalText
-         |🏠 Turi: $typeStr
-         |💰 Narx: $priceStr
-         |📍 Shahar: $cityStr
-         |🏠 Xonalar: $roomsStr
-         |📞 Telefon: $phoneStr
-         |$districtLine
-         |$floorLine
-         |$totalFloorsLine
-         |$buildingTypeLine
-         |$conditionLine
-         |
-         |$confirmText""".stripMargin
+
+$channelPostFormat
+
+$confirmText"""
     }
 
     // Mode-based feature blocking helpers

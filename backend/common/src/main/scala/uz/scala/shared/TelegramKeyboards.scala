@@ -397,7 +397,7 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
-  // Phone number keyboard with contact request
+  // Phone number keyboard with contact request (for NEW users without stored phone)
   def phoneKeyboard(language: Language): InlineKeyboardMarkup = {
     val (shareContact, manual, skip) = language match {
       case Uz =>
@@ -414,6 +414,33 @@ object TelegramKeyboards {
       ),
       List(
         InlineKeyboardButton(manual, callbackData = Some("phone_manual"))
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("phone_skip"))
+      ),
+    )
+
+    InlineKeyboardMarkup(buttons)
+  }
+
+  // Phone REUSE keyboard (for returning users WITH stored phone)
+  // Shows option to use stored phone or enter a different one
+  def phoneReuseKeyboard(storedPhone: String, language: Language): InlineKeyboardMarkup = {
+    val (useOwn, enterNew, skip) = language match {
+      case Uz =>
+        (s"📱 O'zimniki ($storedPhone)", "➕ Boshqa raqam", "⏭ Oʻtkazib yuborish")
+      case Ru =>
+        (s"📱 Мой номер ($storedPhone)", "➕ Другой номер", "⏭ Пропустить")
+      case En =>
+        (s"📱 My number ($storedPhone)", "➕ Different number", "⏭ Skip")
+    }
+
+    val buttons = List(
+      List(
+        InlineKeyboardButton(useOwn, callbackData = Some("phone_use_stored"))
+      ),
+      List(
+        InlineKeyboardButton(enterNew, callbackData = Some("phone_enter_new"))
       ),
       List(
         InlineKeyboardButton(skip, callbackData = Some("phone_skip"))
@@ -479,29 +506,62 @@ object TelegramKeyboards {
     InlineKeyboardMarkup(buttons)
   }
 
-  // Total floors selection keyboard
+  // Total floors selection keyboard - MODERN UX with common building heights
   def totalFloorsKeyboard(language: Language): InlineKeyboardMarkup = {
-    val (floors3, floors5, floors9, skip) = language match {
-      case Uz =>
-        ("3", "5", "9", "⏭ Oʻtkazib yuborish")
-      case Ru =>
-        ("3", "5", "9", "⏭ Пропустить")
-      case En =>
-        ("3", "5", "9", "⏭ Skip")
+    val (other, skip) = language match {
+      case Uz => ("✍️ Boshqa", "⏭ Oʻtkazib yuborish")
+      case Ru => ("✍️ Другое", "⏭ Пропустить")
+      case En => ("✍️ Other", "⏭ Skip")
     }
 
+    // Most common building heights in Uzbekistan
     val buttons = List(
       List(
-        InlineKeyboardButton(floors3, callbackData = Some("total_floors_3")),
-        InlineKeyboardButton(floors5, callbackData = Some("total_floors_5")),
-        InlineKeyboardButton(floors9, callbackData = Some("total_floors_9")),
+        InlineKeyboardButton("3", callbackData = Some("total_floors_3")),
+        InlineKeyboardButton("5", callbackData = Some("total_floors_5")),
+        InlineKeyboardButton("9", callbackData = Some("total_floors_9")),
+        InlineKeyboardButton("12", callbackData = Some("total_floors_12")),
       ),
       List(
-        InlineKeyboardButton(skip, callbackData = Some("total_floors_skip"))
+        InlineKeyboardButton("16", callbackData = Some("total_floors_16")),
+        InlineKeyboardButton(other, callbackData = Some("total_floors_custom")),
+      ),
+      List(
+        InlineKeyboardButton(skip, callbackData = Some("total_floors_skip")),
       ),
     )
 
     InlineKeyboardMarkup(buttons)
+  }
+
+  // Dynamic floor keyboard - GENERATED based on totalFloors
+  def dynamicFloorKeyboard(totalFloors: Int, language: Language): InlineKeyboardMarkup = {
+    val (other, skip) = language match {
+      case Uz => (BotMessages.BUTTON_OTHER_FLOOR(Uz), "⏭ Oʻtkazib yuborish")
+      case Ru => (BotMessages.BUTTON_OTHER_FLOOR(Ru), "⏭ Пропустить")
+      case En => (BotMessages.BUTTON_OTHER_FLOOR(En), "⏭ Skip")
+    }
+
+    // Generate floor buttons dynamically
+    val maxButtonFloors = math.min(totalFloors, 12)
+    val floorButtons = (1 to maxButtonFloors).map { floor =>
+      InlineKeyboardButton(floor.toString, callbackData = Some(s"floor_$floor"))
+    }.toList
+
+    // Chunk into rows of 4 buttons each
+    val floorRows = floorButtons.grouped(4).toList
+
+    // Add "Other floor" button if totalFloors > 12
+    val extraButtons = if (totalFloors > 12) {
+      List(List(InlineKeyboardButton(other, callbackData = Some("floor_custom"))))
+    } else {
+      List.empty
+    }
+
+    // Add skip button
+    val skipRow = List(List(InlineKeyboardButton(skip, callbackData = Some("floor_skip"))))
+
+    InlineKeyboardMarkup(floorRows ++ extraButtons ++ skipRow)
   }
 
   // Building type selection keyboard

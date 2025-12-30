@@ -320,6 +320,13 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "Telefon raqamini kiriting (masalan, +998901234567):",
   )
 
+  // Phone reuse prompt (for users who already have a stored phone)
+  val PROMPT_PHONE_REUSE: Map[Language, String] = Map(
+    En -> "📞 Which phone number should we use?",
+    Ru -> "📞 Какой номер телефона использовать?",
+    Uz -> "📞 Qaysi raqamni ishlatamiz?",
+  )
+
   val PROMPT_DISTRICT: Map[Language, String] = Map(
     En -> "District (or 'skip'):",
     Ru -> "Район (или 'пропустить'):",
@@ -357,9 +364,30 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
   )
 
   val PROMPT_TOTAL_FLOORS_BUTTON: Map[Language, String] = Map(
-    En -> "Select total floors:",
-    Ru -> "Выберите всего этажей:",
-    Uz -> "Jami qavatlar sonini tanlang:",
+    En -> "🏢 How many floors does the building have?",
+    Ru -> "🏢 Сколько этажей в здании?",
+    Uz -> "🏢 Bino necha qavatli?",
+  )
+
+  val PROMPT_FLOOR_DYNAMIC: Map[Language, String] = Map(
+    En -> "📍 Which floor is the apartment on?",
+    Ru -> "📍 На каком этаже находится квартира?",
+    Uz -> "📍 Xonadon qaysi qavatda joylashgan?",
+  )
+
+  val ERROR_FLOOR_EXCEEDS_TOTAL: Map[Language, String] = Map(
+    En -> "❌ Floor cannot be higher than total floors ({totalFloors}). Please select again:",
+    Ru -> "❌ Этаж не может быть выше общего количества этажей ({totalFloors}). Выберите снова:",
+    Uz -> "❌ Qavat umumiy qavatlar sonidan ({totalFloors}) yuqori bo'lishi mumkin emas. Qayta tanlang:",
+  )
+
+  def errorFloorExceedsTotal(totalFloors: Int, lang: Language): String =
+    ERROR_FLOOR_EXCEEDS_TOTAL(lang).replace("{totalFloors}", totalFloors.toString)
+
+  val BUTTON_OTHER_FLOOR: Map[Language, String] = Map(
+    En -> "✍️ Other floor",
+    Ru -> "✍️ Другой этаж",
+    Uz -> "✍️ Boshqa qavat",
   )
 
   val PROMPT_BUILDING_TYPE: Map[Language, String] = Map(
@@ -954,8 +982,13 @@ Please check that the bot is an admin in your channels and try again."""
     }
   }
 
-  // Format channel post with proper language - PREMIUM FORMAT
-  // Note: listingType is passed as String ("ForRent" or "ForSale") to avoid circular dependency
+  // ============================================================
+  // CHANNEL POST - MODERN PREMIUM FORMAT
+  // Compact, readable, one-screen design
+  // ============================================================
+
+  // Note: listingType is passed as String to avoid circular dependency
+  // Handles both enum formats: "FOR_RENT"/"FOR_SALE" (entryName) and "ForRent"/"ForSale" (toString)
   def formatChannelPost(
       listingType: Option[String],
       city: Option[String],
@@ -971,70 +1004,109 @@ Please check that the bot is an admin in your channels and try again."""
     ): String = {
     val sb = new StringBuilder
 
-    // Header with listing type
-    sb.append(CHANNEL_POST_HEADER(lang))
-    sb.append("\n")
+    // ━━━ HEADER: 🏠 E'LON | {listingType} ━━━
+    sb.append("🏠 <b>")
+    sb.append(lang match {
+      case Uz => "E'LON"
+      case Ru => "ОБЪЯВЛЕНИЕ"
+      case En => "LISTING"
+    })
     listingType.foreach { lt =>
-      val typeText = lt match {
-        case "ForRent" => CHANNEL_POST_FOR_RENT(lang)
-        case "ForSale" => CHANNEL_POST_FOR_SALE(lang)
-        case _ => lt // Fallback to original value
+      // CRITICAL: Map enum values to language-aware display labels
+      // Never show FOR_RENT/FOR_SALE to end users!
+      val typeText = lt.toUpperCase match {
+        case "FOR_RENT" | "FORRENT" => CHANNEL_POST_FOR_RENT(lang)
+        case "FOR_SALE" | "FORSALE" => CHANNEL_POST_FOR_SALE(lang)
+        case _ => lt // Fallback (should not happen)
       }
-      sb.append(typeText)
-      sb.append("\n")
+      sb.append(s" | $typeText")
     }
-    sb.append("\n")
+    sb.append("</b>\n\n")
 
-    // Location section - only if city or district exists
-    val hasLocation = city.isDefined || district.isDefined
-    if (hasLocation) {
-      sb.append(CHANNEL_POST_LOCATION(lang))
-      sb.append("\n")
-      (city, district) match {
-        case (Some(c), Some(d)) => sb.append(s"$c, $d\n")
-        case (Some(c), None) => sb.append(s"$c\n")
-        case (None, Some(d)) => sb.append(s"$d\n")
-        case _ => ()
-      }
-      sb.append("\n")
+    // ━━━ LOCATION: 📍 {city}{, district} ━━━
+    val locationStr = (city, district) match {
+      case (Some(c), Some(d)) => Some(s"$c, $d")
+      case (Some(c), None) => Some(c)
+      case (None, Some(d)) => Some(d)
+      case _ => None
+    }
+    locationStr.foreach { loc =>
+      sb.append(s"📍 $loc\n\n")
     }
 
-    // Price section - only if price exists
+    // ━━━ PRICE: 💰 **{price}** ━━━
     price.foreach { p =>
-      sb.append(CHANNEL_POST_PRICE(lang))
-      sb.append("\n")
-      sb.append(s"$$$p\n")
-      sb.append("\n")
+      sb.append(s"💰 <b>$$${p.setScale(0, BigDecimal.RoundingMode.HALF_UP)}</b>\n\n")
     }
 
-    // Property details section - only if any detail exists
-    val hasDetails = rooms.isDefined || floor.isDefined ||
-      buildingType.isDefined || condition.isDefined
+    // ━━━ SEPARATOR ━━━
+    sb.append("━━━━━━━━━━━━━━━\n")
+
+    // ━━━ PROPERTY SECTION: 🏡 Uy haqida ━━━
+    val hasDetails = rooms.isDefined || floor.isDefined || buildingType.isDefined || condition.isDefined
     if (hasDetails) {
-      sb.append(CHANNEL_POST_ABOUT(lang))
-      sb.append("\n")
+      sb.append("<b>🏡 ")
+      sb.append(lang match {
+        case Uz => "Uy haqida"
+        case Ru => "О квартире"
+        case En => "About property"
+      })
+      sb.append("</b>\n")
+
+      // Rooms
       rooms.foreach { r =>
-        sb.append(s"• ${CHANNEL_POST_ROOMS(lang)}: $r\n")
+        val roomLabel = lang match {
+          case Uz => "xona"
+          case Ru => "комн."
+          case En => "rooms"
+        }
+        sb.append(s"• 🛏 $r $roomLabel\n")
       }
+
+      // Building type
+      buildingType.foreach { b =>
+        sb.append(s"• 🏢 ${translateBuildingType(b, lang)}\n")
+      }
+
+      // Condition
+      condition.foreach { c =>
+        sb.append(s"• 📶 ${translateCondition(c, lang)}\n")
+      }
+
+      // Floor (combined format: floor/totalFloors)
       (floor, totalFloors) match {
-        case (Some(f), Some(t)) => sb.append(s"• ${CHANNEL_POST_FLOOR(lang)}: $f/$t\n")
-        case (Some(f), None) => sb.append(s"• ${CHANNEL_POST_FLOOR(lang)}: $f\n")
+        case (Some(f), Some(t)) =>
+          val floorLabel = lang match {
+            case Uz => "qavat"
+            case Ru => "этаж"
+            case En => "floor"
+          }
+          sb.append(s"• 🧱 $f/$t $floorLabel\n")
+        case (Some(f), None) =>
+          val floorLabel = lang match {
+            case Uz => "qavat"
+            case Ru => "этаж"
+            case En => "floor"
+          }
+          sb.append(s"• 🧱 $f $floorLabel\n")
         case _ => ()
       }
-      buildingType.foreach { b =>
-        sb.append(s"• ${CHANNEL_POST_TYPE(lang)}: ${translateBuildingType(b, lang)}\n")
-      }
-      condition.foreach { c =>
-        sb.append(s"• ${CHANNEL_POST_CONDITION(lang)}: ${translateCondition(c, lang)}\n")
-      }
+
       sb.append("\n")
     }
 
-    // Contact section - only if phone exists
+    // ━━━ SEPARATOR ━━━
+    sb.append("━━━━━━━━━━━━━━━\n")
+
+    // ━━━ CONTACT: 📞 Aloqa: {phone} ━━━
     phone.foreach { p =>
-      sb.append(CHANNEL_POST_CONTACT(lang))
-      sb.append("\n")
-      sb.append(s"$p\n")
+      sb.append("<b>📞 ")
+      sb.append(lang match {
+        case Uz => "Aloqa:"
+        case Ru => "Контакт:"
+        case En => "Contact:"
+      })
+      sb.append(s"</b> $p")
     }
 
     sb.toString().trim

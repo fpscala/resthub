@@ -3241,10 +3241,27 @@ object TelegramBotAlgebra {
                   // Create listing in database
                   listingId <- ID.make[F, uz.scala.domain.ListingId]
                   now <- Calendar[F].currentZonedDateTime
-                  titleText = context.forwardedMessage.text.getOrElse("Listing from Telegram")
-                  descriptionText = context.forwardedMessage.text.getOrElse("No description")
+
+                  // Use dynamic title generation - NEVER show "Listing from Telegram"
+                  titleText = BotMessages.generateDynamicTitle(
+                    listingType = context.listingType.map(_.entryName),
+                    city = context.city,
+                    district = context.district,
+                    rooms = context.rooms,
+                    buildingType = context.buildingType,
+                    lang = user.languageCode,
+                  )
+                  // Use user-provided description, fallback to forwarded text, then generic
+                  descriptionText = context.description
+                    .filter(_.trim.nonEmpty)
+                    .orElse(context.forwardedMessage.text.filter(_.trim.nonEmpty))
+                    .getOrElse("Property listing")
                   cityText = context.city.getOrElse("Tashkent")
                   priceValue = context.price.getOrElse(BigDecimal(0))
+
+                  // CRITICAL: Convert Telegram file IDs to public URLs
+                  // Without this, images will not render in web UI!
+                  imageUrls <- convertTelegramFileIdsToUrls(context.forwardedMessage.images)
 
                   listingDto = dto.Listing(
                     id = listingId,
@@ -3253,7 +3270,7 @@ object TelegramBotAlgebra {
                     description = NonEmptyString.unsafeFrom(descriptionText),
                     price = squants.market.USD(priceValue),
                     city = NonEmptyString.unsafeFrom(cityText),
-                    images = context.forwardedMessage.images,
+                    images = imageUrls, // Now using public URLs instead of Telegram file IDs
                     status = ListingStatus.Pending,
                     rejectionReason = None,
                     listingType = context.listingType.getOrElse(ListingType.ForRent),
@@ -3881,10 +3898,14 @@ object TelegramBotAlgebra {
             // Generate listing ID
             listingId <- ID.make[F, uz.scala.domain.ListingId]
             now <- Calendar[F].currentZonedDateTime
-            city = context.city.getOrElse("")
-            // DESCRIPTION: Use user-provided description, fallback to empty string (not forwarded message)
-            // User can optionally add description during the broker flow
-            description = context.description.getOrElse("")
+
+            // Use proper fallbacks to avoid empty string (NonEmptyString requires non-empty)
+            cityText = context.city.filter(_.trim.nonEmpty).getOrElse("Tashkent")
+            // DESCRIPTION: Use user-provided description, fallback to forwarded text, then generic
+            descriptionText = context.description
+              .filter(_.trim.nonEmpty)
+              .orElse(context.forwardedMessage.text.filter(_.trim.nonEmpty))
+              .getOrElse("Property listing")
 
             // IMAGES: Convert Telegram file IDs to public URLs
             // Uses Telegram Bot API to get file paths, then constructs public URLs
@@ -3898,10 +3919,10 @@ object TelegramBotAlgebra {
                 .Listing(
                   id = listingId,
                   ownerId = userId,
-                  title = titleText,
-                  description = description,
+                  title = NonEmptyString.unsafeFrom(titleText),
+                  description = NonEmptyString.unsafeFrom(descriptionText),
                   price = price,
-                  city = city,
+                  city = NonEmptyString.unsafeFrom(cityText),
                   images = imageUrls, // Now using public URLs instead of Telegram file IDs
                   status = uz.scala.domain.enums.ListingStatus.Pending,
                   rejectionReason = None,

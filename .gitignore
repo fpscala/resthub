@@ -8,3 +8,6 @@ local.conf
 application.log
 .metals
 .vscode
+metals.sbt
+backend-build.json
+backend-build-build.json

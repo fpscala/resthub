@@ -56,6 +56,7 @@ case class Environment[F[_]: Async: Logger: Random](
   private val algebras: Algebras[F] =
     Algebras.make[F](
       s3Client,
+      httpClient,
       config.auth,
       repositories,
       redis,

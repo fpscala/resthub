@@ -21,6 +21,9 @@ trait S3Client[F[_]] {
   /** Upload file with public read ACL */
   def putObjectPublic(key: String, fileSize: Long): Pipe[F, Byte, Unit]
 
+  /** Upload file with public read ACL and specific content type */
+  def putObjectPublicWithContentType(key: String, fileSize: Long, contentType: String): Pipe[F, Byte, Unit]
+
   /** Download file */
   def downloadObject(key: String): Stream[F, Byte]
 
@@ -70,6 +73,33 @@ object S3Client {
 
     override def putObjectPublic(key: String, fileSize: Long): Pipe[F, Byte, Unit] =
       uploadWithAcl(key, ObjectCannedACL.PUBLIC_READ)
+
+    override def putObjectPublicWithContentType(key: String, fileSize: Long, contentType: String): Pipe[F, Byte, Unit] =
+      uploadWithContentTypeAndAcl(key, ObjectCannedACL.PUBLIC_READ, contentType)
+
+    private def uploadWithContentTypeAndAcl(key: String, acl: ObjectCannedACL, contentType: String): Pipe[F, Byte, Unit] =
+      _.chunks
+        .flatMap { chunk =>
+          Stream.eval {
+            val bytes = chunk.toArray
+            Async[F].fromCompletableFuture(
+              Sync[F].delay(
+                s3.putObject(
+                  PutObjectRequest
+                    .builder()
+                    .bucket(awsConfig.bucketName.value)
+                    .key(key)
+                    .acl(acl)
+                    .contentType(contentType)
+                    .contentLength(bytes.length.toLong)
+                    .build(),
+                  AsyncRequestBody.fromBytes(bytes),
+                )
+              )
+            )
+          }
+        }
+        .drain
 
     override def downloadObject(key: String): Stream[F, Byte] =
       Stream

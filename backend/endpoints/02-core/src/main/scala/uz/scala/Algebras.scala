@@ -2,19 +2,25 @@ package uz.scala
 
 import _root_.doobie.ConnectionIO
 import _root_.doobie.Transactor
-import cats.effect.Sync
+import cats.effect.kernel.Async
 import cats.effect.std.Random
 import cats.~>
+import org.http4s.client.Client
 import org.typelevel.log4cats.Logger
+import tsec.passwordhashers.PasswordHasher
+import tsec.passwordhashers.jca.SCrypt
 
 import uz.scala.algebras._
 import uz.scala.auth.AuthConfig
 import uz.scala.auth.impl.Auth
 import uz.scala.aws.s3.S3Client
 import uz.scala.domain.AuthedUser
+import uz.scala.effects.Calendar
+import uz.scala.effects.GenUUID
 import uz.scala.mailer.Mailer
 import uz.scala.redis.RedisClient
 import uz.scala.services.PdfService
+import uz.scala.services.FileStorageService
 
 case class Algebras[F[_]](
     auth: Auth[F, AuthedUser],
@@ -31,8 +37,9 @@ case class Algebras[F[_]](
   )
 
 object Algebras {
-  def make[F[_]: Sync: Logger: Random](
+  def make[F[_]: Async: Calendar: GenUUID: Logger: Random](
       s3Client: S3Client[F],
+      httpClient: Client[F],
       config: AuthConfig,
       repositories: Repositories[ConnectionIO],
       redis: RedisClient[F], // Still used for support module, not auth
@@ -45,6 +52,7 @@ object Algebras {
     )(implicit
       xa: Transactor[F],
       lifter: F ~> ConnectionIO,
+      P: PasswordHasher[F, SCrypt],
     ): Algebras[F] = {
     val users = UsersAlgebra.make[F](repositories.users, repositories.roles)
     val roles = RolesAlgebra.make[F](repositories.roles)
@@ -64,6 +72,7 @@ object Algebras {
         pdfService,
       )
     val cities = CitiesAlgebra.make[F](repositories.cities)
+    val fileStorageService = FileStorageService.make[F](s3Client)
 
     val telegramBot = TelegramBotAlgebra.make[F](
       botApi,
@@ -75,6 +84,9 @@ object Algebras {
       listings,
       cities,
       authAlgebra,
+      s3Client,
+      httpClient,
+      fileStorageService,
       botToken,
       webhookBaseUrl,
     )

@@ -211,6 +211,12 @@ O'zbekistondagi ijaraga uylar bo'yicha sizning do'stona yordamchingiz. Ajoyib uy
     Uz -> "❌ Kanalga joylashda xatolik. Bot kanalda admin ekanligini tekshiring va qayta urinib ko'ring.",
   )
 
+  val IMAGES_UNAVAILABLE_FALLBACK: Map[Language, String] = Map(
+    En -> "📷 Images could not be processed. Text posted successfully.",
+    Ru -> "📷 Не удалось обработать изображения. Текст успешно отправлен.",
+    Uz -> "📷 Rasmlarni qayta ishlab bo'lmadi. Matn muvaffaqiyatli joylandi.",
+  )
+
   val PERMISSION_DENIED: Map[Language, String] = Map(
     En -> "You don't have permission to post in this channel!",
     Ru -> "У вас нет прав для размещения объявлений в этом канале!",

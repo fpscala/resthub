@@ -1,12 +1,18 @@
 package uz.scala.algebras
 
+import cats.effect.Concurrent
 import cats.effect.MonadCancel
 import cats.effect.MonadCancelThrow
 import cats.implicits._
 import doobie.ConnectionIO
 import doobie.implicits._
 import eu.timepit.refined.types.string.NonEmptyString
+import fs2.Stream
 import io.circe.syntax._
+import org.http4s.Uri
+import org.http4s.client.Client
+import org.http4s.MediaType
+import org.http4s.headers.`Content-Type`
 import org.typelevel.log4cats.Logger
 import telegramium.bots.ChatIntId
 import telegramium.bots.ChatMemberUpdated
@@ -24,6 +30,7 @@ import telegramium.bots.high.Methods
 import telegramium.bots.high.implicits._
 
 import uz.scala.Language
+import uz.scala.domain.FileUpload
 import uz.scala.domain.enums.BotMode
 import uz.scala.domain.enums.BotState
 import uz.scala.domain.enums.ChatType
@@ -39,6 +46,7 @@ import uz.scala.domain.telegram.ForwardedMessage
 import uz.scala.domain.telegram.SearchContext
 import uz.scala.effects.Calendar
 import uz.scala.effects.GenUUID
+import uz.scala.services.FileStorageService
 import uz.scala.repos.BrokerChannelsRepository
 import uz.scala.repos.ListingChannelsRepository
 import uz.scala.repos.ListingsRepository
@@ -59,7 +67,7 @@ trait TelegramBotAlgebra[F[_]] {
 }
 
 object TelegramBotAlgebra {
-  def make[F[_]: MonadCancelThrow: Calendar: GenUUID: Logger](
+  def make[F[_]: Concurrent: Calendar: GenUUID: Logger](
       api: Api[F],
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
@@ -69,6 +77,9 @@ object TelegramBotAlgebra {
       listingsAlgebra: ListingsAlgebra[F],
       citiesAlgebra: CitiesAlgebra[F],
       authAlgebra: AuthAlgebra[F],
+      s3Client: uz.scala.aws.s3.S3Client[F],
+      httpClient: org.http4s.client.Client[F],
+      fileStorageService: FileStorageService[F],
       botToken: String,
       webhookBaseUrl: String,
     )(implicit
@@ -84,11 +95,14 @@ object TelegramBotAlgebra {
       listingsAlgebra,
       citiesAlgebra,
       authAlgebra,
+      s3Client,
+      httpClient,
+      fileStorageService,
       botToken,
       webhookBaseUrl,
     )
 
-  private class Impl[F[_]: MonadCancelThrow: Calendar: GenUUID: Logger](
+  private class Impl[F[_]: Concurrent: Calendar: GenUUID: Logger](
       api: Api[F],
       usersRepo: TelegramUsersRepository[doobie.ConnectionIO],
       sessionsRepo: TelegramSessionsRepository[doobie.ConnectionIO],
@@ -98,6 +112,9 @@ object TelegramBotAlgebra {
       listingsAlgebra: ListingsAlgebra[F],
       citiesAlgebra: CitiesAlgebra[F],
       authAlgebra: AuthAlgebra[F],
+      s3Client: uz.scala.aws.s3.S3Client[F],
+      httpClient: org.http4s.client.Client[F],
+      fileStorageService: FileStorageService[F],
       botToken: String,
       webhookBaseUrl: String,
     )(implicit
@@ -2946,9 +2963,9 @@ object TelegramBotAlgebra {
         cityText = context.city.getOrElse("Tashkent")
         priceValue = context.price.getOrElse(BigDecimal(0))
 
-        // CRITICAL: Convert Telegram file IDs to public URLs
+        // CRITICAL: Download Telegram images and upload to internal storage
         // Without this, images will not render in web UI!
-        imageUrls <- convertTelegramFileIdsToUrls(context.forwardedMessage.images)
+        imageUrls <- downloadAndUploadTelegramImages(context.forwardedMessage.images)
 
         listingDto = dto.Listing(
           id = listingId,
@@ -3259,9 +3276,9 @@ object TelegramBotAlgebra {
                   cityText = context.city.getOrElse("Tashkent")
                   priceValue = context.price.getOrElse(BigDecimal(0))
 
-                  // CRITICAL: Convert Telegram file IDs to public URLs
-                  // Without this, images will not render in web UI!
-                  imageUrls <- convertTelegramFileIdsToUrls(context.forwardedMessage.images)
+        // CRITICAL: Download Telegram images and upload to internal storage
+        // Without this, images will not render in web UI!
+        imageUrls <- downloadAndUploadTelegramImages(context.forwardedMessage.images)
 
                   listingDto = dto.Listing(
                     id = listingId,
@@ -3907,9 +3924,9 @@ object TelegramBotAlgebra {
               .orElse(context.forwardedMessage.text.filter(_.trim.nonEmpty))
               .getOrElse("Property listing")
 
-            // IMAGES: Convert Telegram file IDs to public URLs
-            // Uses Telegram Bot API to get file paths, then constructs public URLs
-            imageUrls <- convertTelegramFileIdsToUrls(context.forwardedMessage.images)
+        // IMAGES: Download Telegram images and upload to internal storage
+        // Replaces temporary Telegram URLs with permanent internal storage URLs
+        imageUrls <- downloadAndUploadTelegramImages(context.forwardedMessage.images)
 
             // Create listing DTO with proper refined types
             listingDto =
@@ -4026,31 +4043,105 @@ object TelegramBotAlgebra {
                 } yield Some(message.messageId.toString)
 
               case images =>
-                // Has images - send as media group with caption on first photo
-                val firstPhoto = telegramium
-                  .bots
-                  .InputMediaPhoto(
-                    media = InputLinkFile(images.head),
-                    caption = Some(messageText),
-                    parseMode = Some(Html),
-                  )
-                val restPhotos = images
-                  .tail
-                  .map(img => telegramium.bots.InputMediaPhoto(media = InputLinkFile(img)))
-                val mediaGroup = firstPhoto :: restPhotos
-
+                // Has images - validate URLs before sending
                 for {
-                  messages <- Methods
-                    .sendMediaGroup(
-                      chatId = ChatIntId(channelId),
-                      media = mediaGroup,
-                    )
-                    .exec(api)
-                  messageId = messages.headOption.map(_.messageId.toString).getOrElse("0")
-                  _ <- Logger[F].info(
-                    s"Posted listing with ${images.size} images to channel, message_id: $messageId"
-                  )
-                } yield Some(messageId)
+                  validImages <- validateImageUrls(images)
+                  result <- validImages match {
+                    case Nil =>
+                      // No valid images - send text message only
+                      for {
+                        message <- Methods
+                          .sendMessage(
+                            chatId = ChatIntId(channelId),
+                            text = messageText,
+                            parseMode = Some(Html),
+                          )
+                          .exec(api)
+                        _ <- Logger[F].info(
+                          s"Posted text-only listing (all images invalid) to channel, message_id: ${message.messageId}"
+                        )
+                      } yield Some(message.messageId.toString)
+
+                    case singleImage :: Nil =>
+                      // Single valid image - send as photo
+                      for {
+                        message <- Methods
+                          .sendPhoto(
+                            chatId = ChatIntId(channelId),
+                            photo = InputLinkFile(singleImage),
+                            caption = Some(messageText),
+                            parseMode = Some(Html),
+                          )
+                          .exec(api)
+                          .attempt
+                          .handleErrorWith {
+                            case fr: FailedRequest[_]
+                                 if fr.description.exists(_.contains("WEBPAGE_MEDIA_EMPTY")) =>
+                              Logger[F].warn("Photo send failed with WEBPAGE_MEDIA_EMPTY (URL expired), falling back to text message") *>
+                              Methods
+                                .sendMessage(
+                                  chatId = ChatIntId(channelId),
+                                  text = messageText,
+                                  parseMode = Some(Html),
+                                )
+                                .exec(api)
+                                .map(Either.right[Throwable, Message](_))
+                            case other =>
+                              Logger[F].error(s"Photo send failed: $other") *>
+                              other.raiseError[F, Either[Throwable, Message]]
+                          }
+                          .rethrow
+                        _ <- Logger[F].info(
+                          s"Posted listing with 1 valid image to channel, message_id: ${message.messageId}"
+                        )
+                      } yield Some(message.messageId.toString)
+
+                    case validImages =>
+                      // Multiple valid images - send as media group
+                      val firstPhoto = telegramium
+                        .bots
+                        .InputMediaPhoto(
+                          media = InputLinkFile(validImages.head),
+                          caption = Some(messageText),
+                          parseMode = Some(Html),
+                        )
+                      val restPhotos = validImages
+                        .tail
+                        .map(img => telegramium.bots.InputMediaPhoto(media = InputLinkFile(img)))
+                      val mediaGroup = firstPhoto :: restPhotos
+
+                      for {
+                        messages <- Methods
+                          .sendMediaGroup(
+                            chatId = ChatIntId(channelId),
+                            media = mediaGroup,
+                          )
+                          .exec(api)
+                          .attempt
+                          .handleErrorWith {
+                            case fr: FailedRequest[_]
+                                 if fr.description.exists(_.contains("WEBPAGE_MEDIA_EMPTY")) =>
+                              Logger[F].warn("Media group failed with WEBPAGE_MEDIA_EMPTY (URLs expired), falling back to text message") *>
+                              Methods
+                                .sendMessage(
+                                  chatId = ChatIntId(channelId),
+                                  text = messageText,
+                                  parseMode = Some(Html),
+                                )
+                                .exec(api)
+                                .map(msg => Right[Throwable, List[Message]](List(msg)))
+                            case other =>
+                              Logger[F].error(s"Media group failed: $other") *>
+                              other.raiseError[F, Either[Throwable, List[Message]]]
+                          }
+                          .rethrow
+                        messageId = messages.headOption.map(_.messageId.toString).getOrElse("0")
+                        _ <- Logger[F].info(
+                          s"Posted listing to channel (media group), message_id: $messageId"
+                        )
+                      } yield Some(messageId)
+                  }
+                } yield result
             }
           }
       } yield result
@@ -4106,33 +4197,84 @@ $channelPostFormat
 $confirmText"""
     }
 
-    // TELEGRAM FILE ID TO PUBLIC URL CONVERSION
-    // Downloads file info from Telegram and constructs public download URL
-    private def convertTelegramFileIdsToUrls(fileIds: List[String]): F[List[String]] =
+    // TELEGRAM IMAGE DOWNLOAD AND UPLOAD PIPELINE
+    // Downloads Telegram images and uploads them to internal storage
+    private def downloadAndUploadTelegramImages(fileIds: List[String]): F[List[String]] =
       fileIds.traverse { fileId =>
-        // Use Telegram's getFile API to get file path
-        Methods
-          .getFile(fileId)
-          .exec(api)
-          .flatMap { file =>
-            file.filePath match {
-              case Some(path) =>
-                // Construct public Telegram file URL
-                // Format: https://api.telegram.org/file/bot<TOKEN>/<file_path>
-                val url = s"https://api.telegram.org/file/bot$botToken/$path"
-                url.pure[F]
-              case None =>
-                // Fallback to file ID if path not available
-                // This should rarely happen
-                Logger[F].warn(s"No file path for Telegram file ID: $fileId") *>
-                  fileId.pure[F]
-            }
+        for {
+          // Step 1: Get file info from Telegram
+          fileInfo <- Methods.getFile(fileId).exec(api)
+          path <- fileInfo.filePath.fold(
+            Logger[F].error(s"No file path for Telegram file ID: $fileId") *>
+              MonadCancel[F].raiseError[String](new RuntimeException(s"Invalid file path for ID: $fileId"))
+          )(_.pure[F])
+          
+          // Step 2: Construct temporary Telegram download URL
+          tempTelegramUrl = s"https://api.telegram.org/file/bot$botToken/$path"
+          
+          // Step 3: Download file bytes
+          fileBytes <- downloadFileBytes(tempTelegramUrl)
+          
+          // Step 4: Upload to internal storage with proper content type
+          filename = s"${fileId}_${path.split('.').lastOption.getOrElse("jpg")}"
+          fileUpload = uz.scala.domain.FileUpload(
+            filename = filename,
+            contentType = detectImageContentType(fileBytes),
+            content = fileBytes
+          )
+          internalUrl <- fileStorageService.uploadPublicFile(fileUpload)
+          
+          _ <- Logger[F].info(s"Successfully uploaded Telegram image $fileId to internal storage")
+        } yield internalUrl
+      }.handleErrorWith { error =>
+        Logger[F].error(s"Failed to process Telegram image: ${error.getMessage}") *>
+          MonadCancel[F].raiseError[List[String]](new RuntimeException("Image processing failed", error))
+      }
+
+    // Download file bytes from URL
+    private def downloadFileBytes(url: String): F[Array[Byte]] =
+      httpClient.get(org.http4s.Uri.unsafeFromString(url)) { response =>
+        response.body.compile.toVector.map(_.toArray)
+      }.handleErrorWith { error =>
+        Logger[F].error(s"Failed to download file from $url: ${error.getMessage}") *>
+          MonadCancel[F].raiseError[Array[Byte]](new RuntimeException(s"Download failed: $url", error))
+      }
+
+    // Validate image URLs by checking HTTP response and content type
+    private def validateImageUrls(urls: List[String]): F[List[String]] =
+      urls.traverseFilter { url =>
+        httpClient.get(org.http4s.Uri.unsafeFromString(url)) { response =>
+          val contentType = response.headers.get[`Content-Type`]
+          if (response.status.isSuccess && contentType.exists(_.mediaType.mainType == "image")) {
+            Option(url).pure[F]
+          } else {
+            Logger[F].warn(s"Invalid image URL: $url (status: ${response.status}, content-type: $contentType)").as(Option.empty[String])
           }
-          .handleErrorWith { error =>
-            // If we can't get file info, log and keep the file ID
-            Logger[F].warn(s"Failed to get file info for $fileId: ${error.getMessage}") *>
-              fileId.pure[F]
-          }
+        }.handleErrorWith { error =>
+          Logger[F].warn(s"Failed to validate image URL $url: ${error.getMessage}").as(Option.empty[String])
+        }
+      }
+
+    // Detect content type from bytes
+    private def detectImageContentType(bytes: Array[Byte]): String =
+      if (bytes.length >= 4) {
+        val header = bytes.take(4)
+        if (java.util.Arrays.equals(header, Array[Byte](0xFF.toByte, 0xD8.toByte, 0xFF.toByte, 0xE0.toByte)) ||
+            java.util.Arrays.equals(header.take(2), Array[Byte](0xFF.toByte, 0xD8.toByte))) {
+          "image/jpeg"
+        } else if (java.util.Arrays.equals(header, Array[Byte](0x89.toByte, 0x50.toByte, 0x4E.toByte, 0x47.toByte))) {
+          "image/png"
+        } else if (java.util.Arrays.equals(header.take(2), Array[Byte](0x42.toByte, 0x4D.toByte))) {
+          "image/bmp"
+        } else if (java.util.Arrays.equals(header.take(4), Array[Byte](0x47.toByte, 0x49.toByte, 0x46.toByte, 0x38.toByte))) {
+          "image/gif"
+        } else if (java.util.Arrays.equals(header.take(4), Array[Byte](0x52.toByte, 0x49.toByte, 0x46.toByte, 0x46.toByte))) {
+          "image/webp"
+        } else {
+          "image/jpeg" // Default fallback
+        }
+      } else {
+        "image/jpeg" // Default fallback
       }
 
     // Mode-based feature blocking helpers

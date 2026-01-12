@@ -30,6 +30,43 @@ trait FileStorageService[F[_]] {
 }
 
 object FileStorageService {
+  // CRITICAL: Detect content type from file bytes and filename to ensure proper Content-Type headers
+  private def detectContentType(bytes: Array[Byte], filename: String): String = {
+    // First try file extension
+    val extension = filename.toLowerCase.split('.').lastOption.getOrElse("")
+
+    extension match {
+      case "jpg" | "jpeg" => "image/jpeg"
+      case "png" => "image/png"
+      case "gif" => "image/gif"
+      case "webp" => "image/webp"
+      case "bmp" => "image/bmp"
+      case "svg" => "image/svg+xml"
+      case "pdf" => "application/pdf"
+      case _ =>
+        // Fallback to magic byte detection
+        if (bytes.length >= 4) {
+          val header = bytes.take(4)
+          if (java.util.Arrays.equals(header, Array[Byte](0xFF.toByte, 0xD8.toByte, 0xFF.toByte, 0xE0.toByte)) ||
+              java.util.Arrays.equals(header.take(2), Array[Byte](0xFF.toByte, 0xD8.toByte))) {
+            "image/jpeg"
+          } else if (java.util.Arrays.equals(header, Array[Byte](0x89.toByte, 0x50.toByte, 0x4E.toByte, 0x47.toByte))) {
+            "image/png"
+          } else if (java.util.Arrays.equals(header.take(2), Array[Byte](0x42.toByte, 0x4D.toByte))) {
+            "image/bmp"
+          } else if (java.util.Arrays.equals(header.take(4), Array[Byte](0x47.toByte, 0x49.toByte, 0x46.toByte, 0x38.toByte))) {
+            "image/gif"
+          } else if (java.util.Arrays.equals(header.take(4), Array[Byte](0x52.toByte, 0x49.toByte, 0x46.toByte, 0x46.toByte))) {
+            "image/webp"
+          } else {
+            "application/octet-stream"
+          }
+        } else {
+          "application/octet-stream"
+        }
+    }
+  }
+
   def make[F[_]: Async: GenUUID](s3Client: S3Client[F]): FileStorageService[F] =
     new FileStorageService[F] {
       override def uploadFile(fileUpload: FileUpload): F[String] =
@@ -46,9 +83,11 @@ object FileStorageService {
       override def uploadPublicFile(fileUpload: FileUpload): F[String] =
         for {
           key <- generateFileKey(fileUpload.filename)
+          // CRITICAL: Detect content type for proper Content-Type headers
+          contentType = detectContentType(fileUpload.content, fileUpload.filename)
           _ <- Stream
             .emits(fileUpload.content)
-            .through(s3Client.putObjectPublic(key, fileUpload.content.length.toLong))
+            .through(s3Client.putObjectPublicWithContentType(key, fileUpload.content.length.toLong, contentType))
             .compile
             .drain
           url <- s3Client.generatePublicUrl(key)

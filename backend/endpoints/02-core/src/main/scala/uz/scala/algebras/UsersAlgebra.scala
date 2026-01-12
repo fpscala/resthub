@@ -44,7 +44,7 @@ object UsersAlgebra {
       xa: doobie.Transactor[F],
     ): UsersAlgebra[F] =
     new Impl[F](usersRepository, rolesRepository)
-
+0
   private class Impl[F[_]: MonadCancelThrow: GenUUID: Calendar: Random](
       usersRepository: UsersRepository[doobie.ConnectionIO],
       rolesRepository: RolesRepository[doobie.ConnectionIO],

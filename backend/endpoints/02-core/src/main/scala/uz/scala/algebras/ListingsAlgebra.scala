@@ -146,12 +146,15 @@ object ListingsAlgebra {
       for {
         _ <- logger.info(s"Searching listings with filters: $filters")
 
-        // Force status to APPROVED for public search
-        publicFilters = filters.copy(status = Some(ListingStatus.Approved))
+        // Determine visibility based on user context if available
+        searchFilters <- // Check if we have user context for broker/owner visibility
+          // For now, default to public search (APPROVED only)
+          // TODO: Add user context to distinguish broker vs buyer searches
+          filters.copy(status = Some(ListingStatus.Approved)).pure[F]
 
         // Get listings
-        listings <- listingsRepository.findByFilters(publicFilters).transact(xa)
-        total <- listingsRepository.count(publicFilters).transact(xa)
+        listings <- listingsRepository.findByFilters(searchFilters).transact(xa)
+        total <- listingsRepository.count(searchFilters).transact(xa)
 
         // Get all unique owner IDs
         ownerIds = listings.map(_.ownerId).distinct
